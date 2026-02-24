@@ -70,20 +70,22 @@ static size_t build_ping_command(uint8_t *buf, size_t bufsize, uint16_t msg_id, 
     return i;
 }
 
-/* PING COMMANDS */
+/* PING SEND COMMANDS */
 // 1212 Distance
 static size_t ping_distance(uint8_t *buf, size_t size)
 {
     uint8_t payload[2];
     write_u16_le(payload, 1212); // distance request
 
-    return build_ping_command(buf, size, 1212, payload, sizeof(payload));
+    // 6 is the general request, payload is requesting a 1212 response
+    return build_ping_command(buf, size, 6, payload, sizeof(payload));
 }
 
 
 // these will parse the uart_transaction_t payload as their input buf and output to their corresponding struct
 /* PARSING RECEIVED DATA*/
 
+// 1212 distance response
 static bool parse_distance(const uint8_t *buf, size_t len, ping_distance_t *distance_response)
 {
     if (len < 24) return false;
@@ -129,6 +131,9 @@ static bool parse_distance(const uint8_t *buf, size_t len, ping_distance_t *dist
 
     return true;
 }
+
+
+// FREE RTOS TASK
 
 static void ping_task(void *arg)
 {
