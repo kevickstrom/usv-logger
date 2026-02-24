@@ -4,6 +4,9 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 
+
+
+
 static QueueHandle_t uart_queue;
 static const char *TAG = "UART_MGR";
 

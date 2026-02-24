@@ -4,7 +4,8 @@
 #include <stdint.h>
 
 typedef struct {
-    float depth;
+    float depth_m;
+    uint8_t confidence;
     uint32_t timestamp;
 } ping_data_t;
 
