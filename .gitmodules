@@ -1,0 +1,3 @@
+[submodule "components/ping-cpp"]
+	path = components/ping-cpp
+	url = https://github.com/bluerobotics/ping-cpp.git
