@@ -4,6 +4,7 @@
 #include "esp_timer.h"
 #include <string.h>
 #include "aggregator.h"
+#include "esp_log.h"
 
 // https://docs.bluerobotics.com/ping-protocol/
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-common/
@@ -16,53 +17,7 @@ QueueHandle_t get_ping_queue()
     return ping_queue;
 }
 
-static void ping_task(void *arg)
-{
-    uart_transaction_t trans;
-    ping_distance_t distance_response;
 
-    while (1)
-    {
-        // Build Ping command
-
-        // cmd will be our full ping protocol message
-
-        memset(&trans, 0, sizeof(trans));
-        trans.device = PING;
-
-        trans.tx_len = ping_distance(trans.tx_buf, sizeof(trans.tx_buf));
-
-        trans.timeout_ms = 200;
-        trans.caller = xTaskGetCurrentTaskHandle();
-
-        xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
-        // TODO: Parse Ping Response with funcs below
-        parse_distance(trans.rx_buf, trans.rx_len, &distance_response);
-
-        // publish to ping queue?
-        xQueueSend(get_ping_queue(), &distance_response, 0);
-
-        // send to SD task
-        xQueueSend(get_record_queue(), &distance_response, 0);
-
-        vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
-    }
-}
-
-void init_ping_task()
-{
-    xTaskCreatePinnedToCore(
-        ping_task,
-        "ping",
-        4096,
-        NULL,
-        8,
-        NULL,
-        0
-    );
-}
 
 /* UTILS */
 
@@ -173,4 +128,53 @@ static bool parse_distance(const uint8_t *buf, size_t len, ping_distance_t *dist
     distance_response->timestamp = xTaskGetTickCount();
 
     return true;
+}
+
+static void ping_task(void *arg)
+{
+    uart_transaction_t trans;
+    ping_distance_t distance_response;
+
+    while (1)
+    {
+        // Build Ping command
+
+        // cmd will be our full ping protocol message
+
+        memset(&trans, 0, sizeof(trans));
+        trans.device = PING;
+
+        trans.tx_len = ping_distance(trans.tx_buf, sizeof(trans.tx_buf));
+
+        trans.timeout_ms = 200;
+        trans.caller = xTaskGetCurrentTaskHandle();
+        ESP_LOGI("PING_TASK", "Requesting distance measurement...");
+        xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // TODO: Parse Ping Response with funcs below
+        parse_distance(trans.rx_buf, trans.rx_len, &distance_response);
+        ESP_LOGI("PING_TASK", "Parsed Response!");
+        // publish to ping queue?
+        xQueueSend(ping_queue, &distance_response, 0);
+
+        // send to SD task
+        xQueueSend(get_record_queue(), &distance_response, 0);
+
+        vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
+    }
+}
+
+void init_ping_task()
+{
+    ping_queue = xQueueCreate(10, sizeof(ping_distance_t));
+    xTaskCreatePinnedToCore(
+        ping_task,
+        "ping",
+        4096,
+        NULL,
+        8,
+        NULL,
+        0
+    );
 }

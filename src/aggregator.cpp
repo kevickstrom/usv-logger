@@ -13,7 +13,7 @@ QueueHandle_t get_record_queue()
 static void aggregator_task(void *arg)
 {
     gps_data_t gps;
-    ping_data_t ping;
+    ping_distance_t ping;
     record_t rec;
 
     while (1)
@@ -27,7 +27,7 @@ static void aggregator_task(void *arg)
             // Try to match latest ping
             if (xQueueReceive(get_ping_queue(), &ping, pdMS_TO_TICKS(200)))
             {
-                rec.depth = ping.depth;
+                rec.depth = ping.distance_mm;
             }
 
             xQueueSend(record_queue, &rec, 0);
