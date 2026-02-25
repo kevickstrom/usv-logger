@@ -8,7 +8,7 @@
 #include "sd_task.h"
 #include "lora_task.h"
 #include "uart_manager.h"
-#include "ping_test.h"
+
 
 static const char *TAG = "MAIN";
 

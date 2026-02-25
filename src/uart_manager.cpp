@@ -69,31 +69,31 @@ static void set_speed_of_sound(float sos_m_s)
 static void uart_manager_task(void *arg)
 {
     uart_transaction_t *trans;
-    uint8_t rx_buf[512];
+    //uint8_t rx_buf[512];
     while (1)
     {
         ESP_LOGI(TAG, "RDY");
-        send_general_request(1);  
-        int len = uart_read_bytes(UART_PORT,
-                              rx_buf,
-                              sizeof(rx_buf),
-                              pdMS_TO_TICKS(500));
-        set_speed_of_sound(343.0f); // 343 m/s at ~20°C
-        vTaskDelay(pdMS_TO_TICKS(50));
+        //send_general_request(1);  
+        //int len = uart_read_bytes(UART_PORT,
+        //                      rx_buf,
+        //                      sizeof(rx_buf),
+        //                      pdMS_TO_TICKS(500));
+        //set_speed_of_sound(343.0f); // 343 m/s at ~20°C
+        //vTaskDelay(pdMS_TO_TICKS(50));
         if (xQueueReceive(uart_queue, &trans, portMAX_DELAY))
         {
             ESP_LOGI(TAG, "Writing to device %d", trans->device);
             mux_select(trans->device);
             vTaskDelay(pdMS_TO_TICKS(10));
             //uart_flush(UART_PORT);
-            //for (int i = 0; i < trans->tx_len; i++) {
-             //   ESP_LOGI(TAG, "TX[%d]: 0x%02X", i, trans->tx_buf[i]);
-            //}
-            //ESP_LOGI(TAG, "sz[ %d ]", trans->rx_len);
+            for (int i = 0; i < trans->tx_len; i++) {
+                ESP_LOGI(TAG, "TX[%d]: 0x%02X", i, trans->tx_buf[i]);
+            }
+            ESP_LOGI(TAG, "tx sz[ %d ]", trans->rx_len);
             //trans->rx_len = 512;
 
 
-            ESP_LOGI(TAG, "new sz[ %d ]", trans->rx_len);
+            ESP_LOGI(TAG, "rx sz[ %d ]", trans->rx_len);
             uart_write_bytes(UART_PORT,
                              (const char*)trans->tx_buf,
                              trans->tx_len);
@@ -103,12 +103,15 @@ static void uart_manager_task(void *arg)
             //size_t length = 0;
             //ESP_ERROR_CHECK(uart_get_buffered_data_len(UART_PORT, (size_t*)&length));
             //send_general_request(1212); 
+            //int len = uart_read_bytes(UART_PORT,
+            //                          rx_buf,
+            //                          sizeof(rx_buf),
+            //                          pdMS_TO_TICKS(500));
             int len = uart_read_bytes(UART_PORT,
-                                      rx_buf,
-                                      sizeof(rx_buf),
-                                      pdMS_TO_TICKS(500));
-
-            //trans->rx_len = len;
+                                      trans->rx_buf,
+                                      512,
+                                      pdMS_TO_TICKS(500));    
+            trans->rx_len = len;
             ESP_LOGI(TAG, "read [ %d ]", len);
             
 
@@ -137,9 +140,11 @@ static void uart_manager_task(void *arg)
                 xTaskNotifyGive(trans->caller);
 
             ESP_LOGI(TAG, "DEV %d TX: %d bytes, RX: %d bytes", trans->device, trans->tx_len, len);
-            for (int i = 0; i < len; i++) {
-                ESP_LOGI(TAG, "aaaRX[%d]: 0x%02X", i, rx_buf[i]);
-            }
+            //for (int i = 0; i < len; i++) {
+                //ESP_LOGI(TAG, "RX[%d]: 0x%02X", i, rx_buf[i]);
+                //trans->rx_buf[i] = rx_buf[i];
+            //}
+            //trans->rx_len = len;
         }
     }
 }

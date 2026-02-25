@@ -243,7 +243,6 @@ static void send_general_request(uint16_t requested_id, uart_transaction_t *tran
     memset(trans, 0, sizeof(*trans));
     trans->device = PING;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
-    ESP_LOGI(TAG, "2nd Mem");
     trans->tx_len = msg.msgDataLength();
     trans->timeout_ms = 500;
     trans->caller = xTaskGetCurrentTaskHandle();
