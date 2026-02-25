@@ -6,6 +6,9 @@
 typedef struct {
     double lat;
     double lon;
+    float alt_m;
+    uint8_t fix_type; // 0 = no fix, 1 = 2D fix, 2 = 3D fix
+    uint8_t num_sats;
     uint32_t timestamp;
 } gps_data_t;
 

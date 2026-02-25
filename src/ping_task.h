@@ -5,6 +5,15 @@
 
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-ping1d/
 
+
+typedef bool (*ping_parser_fn)(const uint8_t* buf, size_t len, void* out_struct);
+
+struct ping_dispatch_entry_t {
+    uint16_t msg_id;
+    ping_parser_fn parser;
+    size_t struct_size;
+};
+
 // SET COMMANDS
 
 // 1004 set_ping_interval

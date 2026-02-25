@@ -5,19 +5,28 @@
 #include <string.h>
 #include "aggregator.h"
 #include "esp_log.h"
+#include "ping-message.h"
+#include "ping-parser.h"
 
 // https://docs.bluerobotics.com/ping-protocol/
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-common/
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-ping1d/
 
 static QueueHandle_t ping_queue;
+static const char *TAG = "PING_TASK";
 
 QueueHandle_t get_ping_queue()
 {
     return ping_queue;
 }
+static bool parse_distance(const uint8_t *buf, size_t len, void* out_struct);
+static const ping_dispatch_entry_t ping_dispatch_table[] = {
+    //{1007, parse_ack, sizeof(ping_enable_t)},
+    {1212, parse_distance, sizeof(ping_distance_t)},
 
+};
 
+static const size_t ping_dispatch_table_size = sizeof(ping_dispatch_table)/sizeof(ping_dispatch_table[0]);
 
 /* UTILS */
 
@@ -71,23 +80,44 @@ static size_t build_ping_command(uint8_t *buf, size_t bufsize, uint16_t msg_id, 
 }
 
 /* PING SEND COMMANDS */
+// 1006 set_ping_enable
+static size_t ping_enable(uint8_t *buf, size_t size, uint8_t enable)
+{
+    uint8_t payload[1];
+    payload[0] = enable;
+
+    return build_ping_command(buf, size, 1006, payload, sizeof(payload));
+}
 // 1212 Distance
 static size_t ping_distance(uint8_t *buf, size_t size)
 {
     uint8_t payload[2];
-    write_u16_le(payload, 1212); // distance request
-
-    // 6 is the general request, payload is requesting a 1212 response
+    write_u16_le(payload, 1208); // request 1212 distance message
     return build_ping_command(buf, size, 6, payload, sizeof(payload));
 }
+
+
+static size_t ping_get_device_info(uint8_t *buf, size_t size)
+{
+    return build_ping_command(buf, size, 4, NULL, 0); // msg ID 4, no payload
+}
+    
 
 
 // these will parse the uart_transaction_t payload as their input buf and output to their corresponding struct
 /* PARSING RECEIVED DATA*/
 
 // 1212 distance response
-static bool parse_distance(const uint8_t *buf, size_t len, ping_distance_t *distance_response)
+static bool parse_distance(const uint8_t *buf, size_t len, void* out_struct)
 {
+    ping_distance_t *distance_response = (ping_distance_t*)out_struct;
+    
+    for (size_t i = 0; i < len; i++)
+    {
+        ESP_LOGI("PING_PARSE", "RX: %02X", buf[i]);
+    }
+    
+
     if (len < 24) return false;
     if (buf[0] != 0x42 || buf[1] != 0x52) return false; // check start bytes
 
@@ -129,17 +159,27 @@ static bool parse_distance(const uint8_t *buf, size_t len, ping_distance_t *dist
     distance_response->gain_setting = gain_setting;
     distance_response->timestamp = xTaskGetTickCount();
 
+    ESP_LOGI("PING_PARSE", "Distance: %u mm, Confidence: %u, Duration: %u us, Ping #: %u",
+             distance_response->distance_mm,
+             distance_response->confidence,
+             distance_response->transmit_duration_us,
+             distance_response->ping_number);
+    ESP_LOGI("PING_PARSE", "Scan start: %u mm, Scan length: %u mm, Gain: %u",
+             distance_response->scan_start_mm,
+             distance_response->scan_length_mm,
+             distance_response->gain_setting);
+
     return true;
 }
 
 
 // FREE RTOS TASK
-
+/*
 static void ping_task(void *arg)
 {
     uart_transaction_t trans;
     ping_distance_t distance_response;
-
+    int enabled = 0;
     while (1)
     {
         // Build Ping command
@@ -149,34 +189,188 @@ static void ping_task(void *arg)
         memset(&trans, 0, sizeof(trans));
         trans.device = PING;
 
-        trans.tx_len = ping_distance(trans.tx_buf, sizeof(trans.tx_buf));
+        if (!enabled) {
+            trans.tx_len = ping_enable(trans.tx_buf, sizeof(trans.tx_buf), true);
+            enabled++;
+        }
+        else if (enabled == 1) {
+            //trans.tx_len = ping_distance(trans.tx_buf, sizeof(trans.tx_buf));
+            trans.tx_len = ping_get_device_info(trans.tx_buf, sizeof(trans.tx_buf));
+            enabled++;
+        }
+        else {
+            trans.tx_len = ping_distance(trans.tx_buf, sizeof(trans.tx_buf));
+        }
 
-        trans.timeout_ms = 200;
+        trans.timeout_ms = 500;
         trans.caller = xTaskGetCurrentTaskHandle();
         ESP_LOGI("PING_TASK", "Requesting distance measurement...");
         xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         // TODO: Parse Ping Response with funcs below
-        parse_distance(trans.rx_buf, trans.rx_len, &distance_response);
-        ESP_LOGI("PING_TASK", "Parsed Response!");
-        // publish to ping queue?
-        xQueueSend(ping_queue, &distance_response, 0);
+        bool parse_ok = parse_distance(trans.rx_buf, trans.rx_len, &distance_response);
+        ESP_LOGI("PING_TASK", "Received response, length %d, parse_ok %d", trans.rx_len, parse_ok);
+        if (parse_ok) {
+            ESP_LOGI("PING_TASK", "Parsed Response!");
+            // publish to ping queue?
+            xQueueSend(ping_queue, &distance_response, 0);
 
-        // send to SD task
-        xQueueSend(get_record_queue(), &distance_response, 0);
+            // send to SD task
+            xQueueSend(get_record_queue(), &distance_response, 0);
+        }
 
         vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
+    }
+}
+    */
+static void send_general_request(uint16_t requested_id, uart_transaction_t *trans)
+{
+    ping_message msg(64);   // safe buffer size
+
+    msg.set_message_id(6);      // general_request
+    msg.set_source_device_id(0);
+    msg.set_destination_device_id(0);
+    msg.set_payload_length(2);
+
+    // little endian
+    msg.msgData[ping_message::headerLength + 0] = requested_id & 0xFF;
+    msg.msgData[ping_message::headerLength + 1] = (requested_id >> 8) & 0xFF;
+
+    msg.updateChecksum();
+    ESP_LOGI(TAG, "MSG BUILT");
+
+    memset(trans, 0, sizeof(*trans));
+    trans->device = PING;
+    memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
+    ESP_LOGI(TAG, "2nd Mem");
+    trans->tx_len = msg.msgDataLength();
+    trans->timeout_ms = 500;
+    trans->caller = xTaskGetCurrentTaskHandle();
+
+    ESP_LOGI("PING_TASK", "Requesting distance measurement...");
+    xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    /*
+    uart_write_bytes(UART_PORT,
+                     (const char*)msg.msgData,
+                     msg.msgDataLength());
+                     */
+}
+static void set_speed_of_sound(float sos_m_s, uart_transaction_t *trans)
+{
+    // Ping1D expects speed of sound in hundredths of m/s
+    // e.g., 343.0 m/s -> 34300
+    uint16_t sos_val = (uint16_t)(sos_m_s * 100);
+
+    ping_message msg(64);
+    msg.set_message_id(6);       // general request
+    msg.set_source_device_id(0);
+    msg.set_destination_device_id(0);
+    msg.set_payload_length(3);   // 2 bytes for sos + 1 byte setting ID
+
+    // first byte: setting type (2 for speed of sound)
+    msg.msgData[ping_message::headerLength + 0] = 2;  
+
+    // next 2 bytes: speed of sound (little endian)
+    msg.msgData[ping_message::headerLength + 1] = sos_val & 0xFF;
+    msg.msgData[ping_message::headerLength + 2] = (sos_val >> 8) & 0xFF;
+
+    msg.updateChecksum();
+
+    memset(trans, 0, sizeof(*trans));
+    trans->device = PING;
+    memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
+    trans->tx_len = msg.msgDataLength();
+    trans->timeout_ms = 500;
+    trans->caller = xTaskGetCurrentTaskHandle();
+    ESP_LOGI("PING_TASK", "Set speed of sound to %.2f m/s", sos_m_s);
+    xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+}
+
+void ping_task(void *arg)
+{
+    PingParser parser;
+
+    ESP_LOGI(TAG, "Syncing with Ping1D...");
+
+    /* ---- Step 1: Request device info to confirm comms ---- */
+    uart_transaction_t trans;
+    send_general_request(1, &trans);   // device_information
+    ESP_LOGI(TAG, "passed req");
+    
+    if (trans.rx_len <= 0) {
+        ESP_LOGE(TAG, "No response during init");
+    } else {
+        ESP_LOGI(TAG, "Ping1D responded (%d bytes)", trans.rx_len);
+    }
+    
+    
+    ESP_LOGI(TAG, "Setting speed of sound...");
+    set_speed_of_sound(343.0f, &trans); // 343 m/s at ~20°C
+    vTaskDelay(pdMS_TO_TICKS(50));
+   
+    /* ---- Main Loop ---- */
+    while (1)
+    {
+        send_general_request(1212, &trans);   // distance
+        ESP_LOGI(TAG, "BACK FROM REQUEST");
+        //for (int i = 0; i < trans.rx_len; i++)
+        //{
+         //   ESP_LOGI("PING_TASK", "RX: %02X", trans.rx_buf[i]);
+        //}
+        if (trans.rx_len > 0)
+        {
+            parser.reset();
+
+            for (int i = 0; i < trans.rx_len; i++)
+            {
+                auto state = parser.parseByte(trans.rx_buf[i]);
+
+                if (state == PingParser::State::NEW_MESSAGE)
+                {
+                    uint16_t msg_id = parser.rxMessage.message_id();
+
+                    if (msg_id == 1212)
+                    {
+                        uint8_t *p = parser.rxMessage.payload_data();
+/*
+                        uint32_t distance_mm =
+                            p[0] |
+                            (p[1] << 8) |
+                            (p[2] << 16) |
+                            (p[3] << 24);
+*/
+                        uint16_t distance_mm = p[0] | (p[1] << 8);
+                        ESP_LOGI(TAG,
+                                 "Distance: %.3f m",
+                                 distance_mm / 1000.0f);
+                        uint8_t confidence = p[2]; // or p[2] | (p[3] << 8) if 2 bytes
+ESP_LOGI(TAG, "Confidence: %d", confidence);
+                    }
+                }
+            }
+        }
+        else
+        {
+            ESP_LOGW(TAG, "No response");
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
 void init_ping_task()
 {
     ping_queue = xQueueCreate(10, sizeof(ping_distance_t));
+
     xTaskCreatePinnedToCore(
         ping_task,
         "ping",
-        4096,
+        8192,
         NULL,
         8,
         NULL,

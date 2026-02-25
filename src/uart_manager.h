@@ -11,9 +11,9 @@ typedef enum {
 
 typedef struct {
     mux_device_t device;
-    uint8_t tx_buf[128];
+    uint8_t tx_buf[512];
     size_t tx_len;
-    uint8_t rx_buf[256];
+    uint8_t rx_buf[512];
     size_t rx_len;
     uint32_t timeout_ms;
     TaskHandle_t caller;

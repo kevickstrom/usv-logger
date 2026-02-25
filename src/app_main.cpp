@@ -8,6 +8,7 @@
 #include "sd_task.h"
 #include "lora_task.h"
 #include "uart_manager.h"
+#include "ping_test.h"
 
 static const char *TAG = "MAIN";
 
@@ -25,19 +26,20 @@ extern "C" void app_main()
     init_uart_manager();
 
     ESP_LOGI(TAG, "Initializing GNSS task...");
-    init_gnss_task();
+    //init_gnss_task();
 
     ESP_LOGI(TAG, "Initializing Ping task...");
     init_ping_task();
+    //init_ping_distance_task();
 
     ESP_LOGI(TAG, "Initializing Aggregator...");
-    init_aggregator();
+    //init_aggregator();
 
     ESP_LOGI(TAG, "Initializing SD task...");
-    init_sd_task();
+    //init_sd_task();
 
     ESP_LOGI(TAG, "Initializing LoRa task...");
-    init_lora_task();
+    //init_lora_task();
 
     ESP_LOGI(TAG, "All tasks started. System running.");
 
