@@ -13,6 +13,25 @@ struct ping_dispatch_entry_t {
     ping_parser_fn parser;
     size_t struct_size;
 };
+// 1 ACK
+typedef struct {
+    uint16_t acked_id;
+} ping_ack_t;
+
+// 2 NACK
+typedef struct {
+    uint16_t nacked_id;
+    char nack_message[128];
+} ping_nack_t;
+
+// 4 device_info
+typedef struct {
+    uint8_t device_id;
+    uint8_t device_type;
+    uint16_t firmware_version_major;
+    uint16_t firmware_version_minor;
+    uint16_t voltage_5;
+} ping_device_info_t;
 
 // SET COMMANDS
 
