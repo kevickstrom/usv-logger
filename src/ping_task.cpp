@@ -148,6 +148,36 @@ static void set_speed_of_sound(float sos_m_s, uart_transaction_t *trans)
 
 }
 
+// 1003 set_mode_auto
+static void send_set_mode_auto(uint8_t mode_auto, uart_transaction_t *trans)
+{
+    // payload = 1 byte
+    ping_message msg(16);
+
+    msg.set_message_id(1003);
+    msg.set_source_device_id(0);
+    msg.set_destination_device_id(0);
+    msg.set_payload_length(1);
+
+    msg.msgData[ping_message::headerLength + 0] = mode_auto;
+
+    msg.updateChecksum();
+
+    memset(trans, 0, sizeof(*trans));
+    trans->device = PING;
+    memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
+    trans->tx_len = msg.msgDataLength();
+    trans->timeout_ms = 500;
+    trans->caller = xTaskGetCurrentTaskHandle();
+
+    xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    ESP_LOGI("PING_SEND", "Sent set_mode_auto: %u (%s)",
+             mode_auto,
+             mode_auto ? "AUTO" : "MANUAL");
+}
+
 // 1006 set_ping_enable
 static void ping_enable(uint8_t enable, uart_transaction_t *trans)
 {
@@ -160,6 +190,11 @@ static void ping_enable(uint8_t enable, uart_transaction_t *trans)
 static void get_range(uart_transaction_t *trans)
 {
     send_general_request(1204, trans);
+}
+
+static void get_mode_auto(uart_transaction_t *trans)
+{
+    send_general_request(1205, trans);
 }
 
 // 1212 Distance
@@ -298,6 +333,22 @@ bool parse_range(const uint8_t *p, size_t len, ping_range_t *range)
 
     return true;
 }
+
+// 1205 mode_auto
+static bool parse_mode_auto(const uint8_t *p,size_t len, ping_mode_auto_t *mode)
+{
+    if (!p || !mode || len < 1)
+        return false;
+
+    mode->mode_auto = p[0];
+
+    ESP_LOGI(TAG, "Mode Auto: %u (%s)",
+             mode->mode_auto,
+             mode->mode_auto ? "AUTO" : "MANUAL");
+
+    return true;
+}
+
 // 1212 distance response
 static bool parse_distance(const uint8_t *p, size_t len, ping_distance_t *ping_distance_response)
 {
@@ -389,6 +440,7 @@ void ping_task(void *arg)
     ping_device_info_t device_info;
     ping_profile_t profile;
     ping_range_t ping_range_response;
+    ping_mode_auto_t ping_mode_auto_response;
 
     bool flip = false;
     
@@ -420,7 +472,8 @@ void ping_task(void *arg)
             //send_general_request(4, &trans);
             //get_device_info(&trans);
             //send_profile_request(&trans, 0);
-            set_range(0, 2000, &trans); // scan_start=1 m, scan_length=2 m
+            //set_range(0, 2000, &trans); // scan_start=1 m, scan_length=2 m
+            get_mode_auto(&trans);
             //ESP_LOGI(TAG, "Requested speed of sound");
             flip = !flip;
         }
@@ -457,6 +510,10 @@ void ping_task(void *arg)
                     }
                     if (msg_id == 1204) {
                         parse_range(p, parser.rxMessage.payload_length(), &ping_range_response);
+                    }
+                    else if (msg_id == 1205 || msg_id == 1003)
+                    {
+                        parse_mode_auto(p, parser.rxMessage.payload_length(), &ping_mode_auto_response);
                     }
                     else if (msg_id == 1300) 
                     {

@@ -104,7 +104,7 @@ typedef struct {
     uint32_t scan_length_mm;
 } ping_range_t;
 
-// 1205 mode_auto
+// 1003 / 1205 mode_auto
     // u8 mode_auto 0 = manual, 1 = auto
 typedef struct {
     uint8_t mode_auto;
