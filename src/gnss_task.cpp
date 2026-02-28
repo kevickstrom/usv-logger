@@ -1,6 +1,19 @@
 #include "gnss_task.h"
 #include "uart_manager.h"
 #include "config.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <nmea.h>
+#include <gpgll.h>
+#include <gpgga.h>
+#include <gprmc.h>
+#include <gpgsa.h>
+#include <gpvtg.h>
+#include <gptxt.h>
+#include <gpgsv.h>
+
 #include <string.h>
 
 static QueueHandle_t gps_queue;
