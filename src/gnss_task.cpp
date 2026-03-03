@@ -8,11 +8,12 @@
 
 static const char *TAG = "GNSS_TASK";
 uart_transaction_t trans;
+static int currBaud = 115200;
 
 // ---------------- GPS Interface ----------------
 class GPS_Interface_IDF : public AP_GPS_UBLOX {
 public:
-    void I_setBaud(int) override {}
+    void I_setBaud(int newbaud) override {currBaud = newbaud;}
 
     int I_available() override {
         return rx_len;
@@ -36,6 +37,7 @@ public:
         memcpy(trans.tx_buf, data, len);
         trans.tx_len = len;
         trans.device = PING;
+        trans.baud = currBaud;
         trans.timeout_ms = 500;
         trans.caller = xTaskGetCurrentTaskHandle();  // Notifies GNSS task
 
@@ -81,10 +83,10 @@ void gnss_task(void *arg) {
     ESP_LOGI(TAG, "GNSS task started");
 
     vTaskDelay(pdMS_TO_TICKS(5000));
-
+    // TODO: Handle 230400->115200 change on startup
     while (1) {
         ESP_LOGI(TAG, "Sending GPS request...");
-        // Build and send a request transaction
+        // send msg to access rx buf
         uint8_t msg[] = {0xB5,0x62,0x06,0x01,0x03,0x00,0x00,0x00,0x0A,0x0D};
         gps.I_write(msg, sizeof(msg));
 

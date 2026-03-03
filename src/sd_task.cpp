@@ -158,54 +158,12 @@ static void sd_task(void *arg)
             else
             {
                 ESP_LOGI(TAG, "Logging currently disabled");
-                //char path[128];
-
-                // Always snprintf with full buffer size
-                //snprintf(path, sizeof(path), "%s/%s", MOUNT_POINT, save_req.fname);
-
-                // Extra safety: forcibly null terminate
-                //path[128-1] = '\0';
-                //ESP_LOGI(TAG, "GOT FNAME: %s", save_req.fname);
 
             }
         }
-        // ret = s_example_read_file(file_hello);
-        // if (ret != ESP_OK) {
-        //     return;
-        // }
-        // int pin_level = gpio_get_level(TOGGLE_SW);
-        // ESP_LOGI(TAG, "LVL: %d", pin_level);
-
-
-
-        //vTaskDelay(pdMS_TO_TICKS(g_log_interval_ms));
-
-        // if (xQueueReceive(get_record_queue(), &req, portMAX_DELAY))
-        // {
-        //     char line[128];
-
-        //     int len = snprintf(line, sizeof(line),
-        //                        "%lu,%.6f,%.6f,%.2f\n",
-        //                        rec.timestamp,
-        //                        rec.lat,
-        //                        rec.lon,
-        //                        rec.depth);
-
-        //     if (buffer_index + len < SD_BUFFER_SIZE)
-        //     {
-        //         memcpy(&sd_buffer[buffer_index], line, len);
-        //         buffer_index += len;
-        //     }
-
-        //     uint64_t now = esp_timer_get_time() / 1000;
-
-        //     if ((now - last_flush_time) >= g_log_interval_ms)
-        //     {
-        //         flush_to_sd();
-        //     }
-        // }
     }
 }
+
 
 void init_sd_task()
 {

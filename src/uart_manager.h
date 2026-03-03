@@ -11,6 +11,7 @@ typedef enum {
 
 typedef struct {
     mux_device_t device;
+    int baud;
     uint8_t tx_buf[512];
     size_t tx_len;
     uint8_t rx_buf[512];

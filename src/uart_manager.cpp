@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "ping_task.h"
 
+#define DEFAULT_BAUD 115200
 
 static QueueHandle_t uart_queue;
 static const char *TAG = "UART_MGR";
@@ -25,42 +26,11 @@ static void debug_tx_tx(const uart_transaction_t *trans)
             ESP_LOGI(TAG, "RX[%d]: 0x%02X", i, trans->rx_buf[i]);
         }
 }
-int parse_ublox_latlon_stream(const uint8_t *buf, size_t len, double *lat, double *lon) {
-    int found = 0;
-
-    for (size_t i = 0; i + 36 <= len; i++) { // need full header + payload + checksum
-        if (buf[i] == 0xB5 && buf[i+1] == 0x62) {
-            uint8_t cls = buf[i+2];
-            uint8_t id  = buf[i+3];
-            uint16_t payload_len = buf[i+4] | (buf[i+5] << 8);
-
-            if (cls == 0x01 && id == 0x02 && payload_len >= 28) {
-                // simple checksum check (optional)
-                uint8_t ck_a = 0, ck_b = 0;
-                for (size_t j = 2; j < 6 + payload_len; j++) {
-                    ck_a += buf[i+j];
-                    ck_b += ck_a;
-                }
-                if (ck_a != buf[i+6+payload_len] || ck_b != buf[i+6+payload_len+1])
-                    continue; // bad checksum, skip
-
-                // Extract lat/lon
-                int32_t raw_lon = buf[i+6+4] | (buf[i+6+5]<<8) | (buf[i+6+6]<<16) | (buf[i+6+7]<<24);
-                int32_t raw_lat = buf[i+6+8] | (buf[i+6+9]<<8) | (buf[i+6+10]<<16) | (buf[i+6+11]<<24);
-
-                *lon = raw_lon * 1e-7;
-                *lat = raw_lat * 1e-7;
-                found = 1; // keep scanning for last message
-            }
-        }
-    }
-
-    return found;
-}
 
 static void uart_manager_task(void *arg)
 {
     uart_transaction_t *trans;
+    int currBaud = DEFAULT_BAUD;
     while (1)
     {
 
@@ -70,6 +40,13 @@ static void uart_manager_task(void *arg)
             mux_select(trans->device);
             vTaskDelay(pdMS_TO_TICKS(10));
             uart_flush(UART_PORT);
+
+            // if device wants a different baudrate
+            if (trans->baud != currBaud)
+            {
+                uart_set_baudrate(UART_PORT, trans->baud);
+                currBaud = trans->baud;
+            }
 
             uart_write_bytes(UART_PORT,
                              (const char*)trans->tx_buf,
@@ -102,6 +79,7 @@ QueueHandle_t get_uart_queue()
 
 void init_uart_manager()
 {
+    // TODO: Handle default baud rates and baud rate switching
     gpio_set_direction(MUX_A0, GPIO_MODE_OUTPUT);
     gpio_set_direction(MUX_A1, GPIO_MODE_OUTPUT);
     gpio_set_direction(MUX_A2, GPIO_MODE_OUTPUT);
@@ -121,7 +99,8 @@ void init_uart_manager()
 
     uart_config_t uart_config = {
             //.baud_rate = 230400,
-            .baud_rate = 115200,
+            //.baud_rate = 115200,
+            .baud_rate = DEFAULT_BAUD,
             .data_bits = UART_DATA_8_BITS,
             .parity = UART_PARITY_DISABLE,
             .stop_bits = UART_STOP_BITS_1,

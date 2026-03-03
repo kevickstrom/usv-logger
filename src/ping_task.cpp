@@ -12,6 +12,8 @@
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-common/
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-ping1d/
 
+#define DEFAULT_BAUD 115200
+
 static QueueHandle_t ping_queue;
 static const char *TAG = "PING_TASK";
 
@@ -47,6 +49,7 @@ static void send_general_request(uint16_t requested_id, uart_transaction_t *tran
 
     memset(trans, 0, sizeof(*trans));
     trans->device = PING;
+    trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
     trans->timeout_ms = 500;
@@ -97,6 +100,7 @@ static void set_range(uint32_t scan_start_mm, uint32_t scan_length_mm, uart_tran
 
     memset(trans, 0, sizeof(*trans));
     trans->device = PING;
+    trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
     trans->timeout_ms = 500;
@@ -136,6 +140,7 @@ static void set_speed_of_sound(float sos_m_s, uart_transaction_t *trans)
 
     memset(trans, 0, sizeof(*trans));
     trans->device = PING;
+    trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
     trans->timeout_ms = 500;
@@ -165,6 +170,7 @@ static void send_set_mode_auto(uint8_t mode_auto, uart_transaction_t *trans)
 
     memset(trans, 0, sizeof(*trans));
     trans->device = PING;
+    trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
     trans->timeout_ms = 500;
@@ -221,6 +227,7 @@ static void send_profile_request( uart_transaction_t *trans,uint16_t profile_id 
 
     memset(trans, 0, sizeof(*trans));
     trans->device = PING;
+    trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
     trans->timeout_ms = 500;
