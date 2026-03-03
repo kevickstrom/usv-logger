@@ -431,6 +431,7 @@ static bool parse_distance(const uint8_t *p, size_t len, ping_distance_t *ping_d
 
 void ping_task(void *arg)
 {
+    // message structs
     PingParser parser;
     uart_transaction_t trans;
     ping_distance_t ping_distance_response;
@@ -442,8 +443,11 @@ void ping_task(void *arg)
     ping_range_t ping_range_response;
     ping_mode_auto_t ping_mode_auto_response;
 
+    // toggle for testing in a loop
     bool flip = false;
     
+    // send request
+    // asf for device_info on init
     send_general_request(4, &trans);   // device_info
 
     if (trans.rx_len <= 0) {
@@ -487,20 +491,24 @@ void ping_task(void *arg)
             {
                 auto state = parser.parseByte(trans.rx_buf[i]);
 
+                // check for new message
                 if (state == PingParser::State::NEW_MESSAGE)
                 {
                     uint16_t msg_id = parser.rxMessage.message_id();
                     uint8_t *p = parser.rxMessage.payload_data();
-                    if (msg_id == 1) {   // example ACK
+
+                    // check message ID and send payload to correct parser
+                    // bad implementation but it works for now
+                    if (msg_id == 1) {   // ACK
                         parse_ack(p, parser.rxMessage.payload_length(), &ack);
                     }
-                    else if (msg_id == 2) {   // example NACK
+                    else if (msg_id == 2) {   // NACK
                         parse_nack(p, parser.rxMessage.payload_length(), &nack);
                     }
-                    else if (msg_id == 4) {
+                    else if (msg_id == 4) {  // Device Info
                         parse_device_info(p, parser.rxMessage.payload_length(), &device_info);
                     }
-                    else if (msg_id == 1212)
+                    else if (msg_id == 1212) // Distance response
                     {
                         parse_distance(p, parser.rxMessage.payload_length(), &ping_distance_response);
                     }
@@ -508,14 +516,15 @@ void ping_task(void *arg)
                     {
                         parse_speed_of_sound(p, parser.rxMessage.payload_length(), &ping_speed_of_sound_response);
                     }
-                    if (msg_id == 1204) {
+                    else if (msg_id == 1204) // range response
+                    { 
                         parse_range(p, parser.rxMessage.payload_length(), &ping_range_response);
                     }
-                    else if (msg_id == 1205 || msg_id == 1003)
+                    else if (msg_id == 1205 || msg_id == 1003) // mode_auto response or echo from set_mode_auto
                     {
                         parse_mode_auto(p, parser.rxMessage.payload_length(), &ping_mode_auto_response);
                     }
-                    else if (msg_id == 1300) 
+                    else if (msg_id == 1300) // profile response
                     {
                         parse_profile(p, parser.rxMessage.payload_length(), &profile);
                     }

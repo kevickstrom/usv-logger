@@ -18,7 +18,7 @@ extern "C" void app_main()
     ESP_LOGI(TAG, "Starting USV logger system...");
 
     // Set global intervals
-    g_sample_interval_ms = 500;
+    g_sample_interval_ms = 50;
     g_log_interval_ms = 2000;
 
     // Initialize tasks
@@ -26,10 +26,10 @@ extern "C" void app_main()
     init_uart_manager();
 
     ESP_LOGI(TAG, "Initializing GNSS task...");
-    //init_gnss_task();
+    init_gnss_task();
 
     ESP_LOGI(TAG, "Initializing Ping task...");
-    init_ping_task();
+    //init_ping_task();
     //init_ping_distance_task();
 
     ESP_LOGI(TAG, "Initializing Aggregator...");
