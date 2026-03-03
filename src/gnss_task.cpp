@@ -3,10 +3,11 @@
 #include "config.h"
 #include "esp_log.h"
 #include "qqqlab_GPS_UBLOX.h"
+#include "sd_task.h"
 #include <string.h>
 
 static const char *TAG = "GNSS_TASK";
-uart_transaction_t trans;  // Holds the transaction
+uart_transaction_t trans;
 
 // ---------------- GPS Interface ----------------
 class GPS_Interface_IDF : public AP_GPS_UBLOX {
@@ -55,7 +56,7 @@ public:
     }
 
     int I_availableForWrite() override {
-        return 128;  // Arbitrary, allow writes anytime
+        return 128;
     }
 
     uint32_t I_millis() override {
@@ -67,51 +68,29 @@ public:
     }
 
 private:
-    uint8_t rx_buf[512]{};  // Buffer to store GPS data
+    uint8_t rx_buf[512]{};
     size_t rx_len = 0;
 };
 
 // ---------------- GNSS Task ----------------
 static GPS_Interface_IDF gps;
+static save_req_t save_req;
 
-static void send_general_request(uart_transaction_t *trans, uint16_t requested_id) {
-    memset(trans, 0, sizeof(*trans));
 
-    trans->device = PING;
-    trans->caller = xTaskGetCurrentTaskHandle();
-    trans->timeout_ms = 500;
-
-    trans->tx_buf[0] = requested_id & 0xFF;
-    trans->tx_buf[1] = (requested_id >> 8) & 0xFF;
-    trans->tx_len = 2;
-
-    uart_transaction_t *ptr = trans;  // Pointer to static struct
-    if (xQueueSend(get_uart_queue(), &ptr, portMAX_DELAY) != pdPASS) {
-        ESP_LOGE(TAG, "Failed to send UART transaction");
-        return;
-    }
-
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // Wait until the transaction is complete
-}
-
-// ---------------- GNSS Task ----------------
 void gnss_task(void *arg) {
-    uint8_t gps_data[512];  // Buffer to store GPS data (assuming 512 bytes for now)
-
     ESP_LOGI(TAG, "GNSS task started");
 
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(5000));
 
     while (1) {
         ESP_LOGI(TAG, "Sending GPS request...");
         // Build and send a request transaction
-        uint8_t msg[] = {0xB5,0x62,0x06,0x01,0x03,0x00,0x00,0x00,0x0A,0x0D};  // Example message
+        uint8_t msg[] = {0xB5,0x62,0x06,0x01,0x03,0x00,0x00,0x00,0x0A,0x0D};
         gps.I_write(msg, sizeof(msg));
 
-        // Now repeatedly call update() to parse bytes
-        gps.update();  // Update GPS data from the serial stream
+        gps.update();
 
-        // Print GPS state (e.g., position)
+
         ESP_LOGI(TAG, "tow:%d dt:%d sats:%d lat:%d lng:%d alt:%d hacc:%d vacc:%d fix:%d\n"
                         , (int)gps.state.time_week_ms
                         , (int)gps.timing.average_delta_us
@@ -124,7 +103,36 @@ void gnss_task(void *arg) {
                         , (int)gps.state.status
         );
 
-        vTaskDelay(pdMS_TO_TICKS(1000));  // Wait for 1 second before next update
+        if ((int)gps.state.time_week_ms != 0)
+        {
+            memset(&save_req, 0, sizeof(save_req));
+
+            int len = snprintf(save_req.data, sizeof(save_req.data),
+                            "tow:%d, dt:%d, sats:%d, lat:%d, lng:%d, alt:%d, hacc:%d, vacc:%d, fix:%d\n",
+                            (int)gps.state.time_week_ms,
+                            (int)gps.timing.average_delta_us,
+                            (int)gps.state.num_sats,
+                            (int)gps.state.lat,
+                            (int)gps.state.lng,
+                            (int)gps.state.alt,
+                            (int)gps.state.horizontal_accuracy,
+                            (int)gps.state.vertical_accuracy,
+                            (int)gps.state.status);
+
+            if (len > 0)
+            {
+                snprintf(save_req.fname, sizeof(save_req.fname), "%s", "gps_log.csv");
+                save_req.device = GPS;
+
+                save_req.len = (len < sizeof(save_req.data)) ? len : sizeof(save_req.data);
+
+                ESP_LOGI(TAG, "queued %lu bytes for file: %s", save_req.len, save_req.fname);
+
+                xQueueSend(get_save_queue(), &save_req, portMAX_DELAY);
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
     }
 }
 

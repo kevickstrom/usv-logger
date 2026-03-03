@@ -13,9 +13,16 @@
 // SPI
 #define SPI_CLK GPIO_NUM_11
 #define SPI_MOSI GPIO_NUM_12
+#define SPI_MISO GPIO_NUM_10
 #define SPI_CS0 GPIO_NUM_15
 #define SPI_CS1 GPIO_NUM_47
 
 // i2c
 #define I2C_SDA GPIO_NUM_21
 #define I2C_SCL GPIO_NUM_9
+
+// ESP LED
+#define LED GPIO_NUM_2
+
+// Toggle SW
+#define TOGGLE_SW GPIO_NUM_4

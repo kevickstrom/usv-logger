@@ -8,7 +8,8 @@
 #include "sd_task.h"
 #include "lora_task.h"
 #include "uart_manager.h"
-
+#include "hardware.h"
+#include "driver/gpio.h"
 
 static const char *TAG = "MAIN";
 
@@ -16,6 +17,9 @@ static const char *TAG = "MAIN";
 extern "C" void app_main()
 {
     ESP_LOGI(TAG, "Starting USV logger system...");
+
+    gpio_reset_pin(LED);
+    gpio_set_direction(LED, GPIO_MODE_OUTPUT);
 
     // Set global intervals
     g_sample_interval_ms = 50;
@@ -36,7 +40,7 @@ extern "C" void app_main()
     //init_aggregator();
 
     ESP_LOGI(TAG, "Initializing SD task...");
-    //init_sd_task();
+    init_sd_task();
 
     ESP_LOGI(TAG, "Initializing LoRa task...");
     //init_lora_task();
@@ -44,9 +48,12 @@ extern "C" void app_main()
     ESP_LOGI(TAG, "All tasks started. System running.");
 
     // Main loop
+    bool on = true;
     while (1)
     {
         vTaskDelay(pdMS_TO_TICKS(1000));
         ESP_LOGI(TAG, "System alive...");
+        gpio_set_level(LED, on);
+        on = !on;
     }
 }

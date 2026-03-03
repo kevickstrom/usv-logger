@@ -120,6 +120,7 @@ void init_uart_manager()
                     0));
 
     uart_config_t uart_config = {
+            //.baud_rate = 230400,
             .baud_rate = 115200,
             .data_bits = UART_DATA_8_BITS,
             .parity = UART_PARITY_DISABLE,

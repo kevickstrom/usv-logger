@@ -2217,11 +2217,9 @@ bool AP_GPS_UBLOX::initblob_send()
 //update GPS. This should be called at 10Hz or greater
 void AP_GPS_UBLOX::update()
 {
-    //config_stage = 4;
     switch(config_stage) {
     case 0: {
       //start sending initblob at current config_baud
-      I_print("cfg case 0");
       initblob_pos = 0;
       initblob_send();
       config_stage_ms = I_millis();
@@ -2237,7 +2235,6 @@ void AP_GPS_UBLOX::update()
     }
     case 1: {
       //continue sending initblob     
-      I_print("cfg case 1");
       if(initblob_send()) {
           config_stage_ms = I_millis();
           config_stage++;
@@ -2247,7 +2244,6 @@ void AP_GPS_UBLOX::update()
     }
     case 2: {
       //wait for initblob transmission to complete
-      I_print("cfg case 2");
       uint8_t initblob[] = UBLOX_BLOB;
       int initblob_size = sizeof(initblob);
       uint32_t initblob_timeout_ms = 3 * 10 * initblob_size * 1000 / (config_baud < 4800 ? 4800 : config_baud);
@@ -2262,7 +2258,6 @@ void AP_GPS_UBLOX::update()
     }
     case 3: {
       //process messages, try next baud rate if no messages received
-      I_print("cfg case 3");
       if(read()) {
         //message was parsed
         config_stage++;
@@ -2287,7 +2282,6 @@ void AP_GPS_UBLOX::update()
     }
     case 4: {
       //normal operation
-      I_print("cfg case 4");
       break;
     }
     default: {
