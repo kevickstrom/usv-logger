@@ -11,17 +11,172 @@
 #include "config.h"
 #include "esp_timer.h"
 
-#define SD_BUFFER_SIZE 4096
-#define MOUNT_POINT "/sdcard"
-
-static char sd_buffer[SD_BUFFER_SIZE];
-static const char *TAG = "SD_TASK";
-static QueueHandle_t save_queue;
-
 
 QueueHandle_t get_save_queue()
 {
     return save_queue;
+}
+
+static void init_file_array()
+{
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        file_log_t *ft = &open_files[i];
+        TickType_t now = xTaskGetTickCount();
+        ft->fname[0] = '\0';
+        ft->index = 0;
+        memset(ft->buffer, 0, sizeof(ft->buffer));
+        ft->last_flush_tick = now;
+        ft->last_write_tick = now;
+    }
+
+}
+
+static void close_file(file_log_t *ft)
+{
+
+    if (ft->index > 0)
+    {
+        // there's still data in the buffer i need to write
+        fwrite(ft->buffer, 1, ft->index, ft->fp);
+        fflush(ft->fp);
+    }
+    
+    TickType_t now = xTaskGetTickCount();
+    ft->fname[0] = '\0';
+    ft->index = 0;
+    memset(ft->buffer, 0, sizeof(ft->buffer));
+    ft->last_flush_tick = now;
+    ft->last_write_tick = now;
+
+    fclose(ft->fp);
+    num_open_files -= 1;
+
+}
+
+static file_log_t* get_or_open_file(const char *path)
+{
+    TickType_t now = xTaskGetTickCount();
+
+    // check if the file is open
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        if (open_files[i].fname != NULL &&
+            strcmp(open_files[i].fname, path) == 0)
+        {
+            return &open_files[i]; // found file already open
+        }
+    }
+
+    file_log_t *file = NULL;
+    // file not yet opened
+    // put file in rotation
+    // check if space available / make space
+    if (num_open_files < MAX_OPEN_FILES)
+    {
+        // open space, add to list of current files and increment count
+        // find first open spot in open file list
+        for (int i = 0; i < MAX_OPEN_FILES; i++)
+        {
+            if (strcmp(open_files[i].fname,'\0') == 0)
+            {
+                file = &open_files[i];
+                FILE *fp = fopen(path, "a");
+                file->fp = fp;
+                num_open_files++;
+                break;
+            }
+        }
+        // still need to fill out file_log_t so dont return
+        //return file;
+    }
+    else
+    {
+        // space is full we need to drop the least used file
+        int lru_index = 0;
+
+        TickType_t oldest = open_files[0].last_write_tick;
+
+        for (int i = 0; i < MAX_OPEN_FILES; i++)
+        {
+            if (open_files[i].last_write_tick < oldest)
+            {
+                oldest = open_files[i].last_write_tick;
+                lru_index = i;
+            }
+        }
+
+        // found the oldest file
+        file_log_t *oldestfile = &open_files[lru_index];
+
+        // TODO: THIS file_log_t that we are closing,
+        // needs to be filled out with 0's?
+        // we are using stack mem still here
+        close_file(oldestfile);
+        ESP_LOGI(TAG, "CLOSED File: %s", oldestfile->fname);
+    
+
+        // now we have a spot for the new file
+        // open file, fill out data_t and return
+        FILE *fp = fopen(path, "a");
+        if (!fp)
+        {
+            ESP_LOGE(TAG, "Failed to open file: %s", path);
+            return NULL;
+        }
+        file = &open_files[lru_index];
+        file->fp = fp;
+    }
+    snprintf(file->fname, sizeof(file->fname), "%s", path);
+    file->index = 0;
+    file->last_flush_tick = now;
+    file->last_write_tick = now;
+    num_open_files += 1;
+    ESP_LOGI(TAG, "Opened file: %s", file->fname);
+    return file;
+}
+
+static void file_buffer_write(file_log_t *file, const char *data, size_t len)
+{
+    if (!file) return;
+    if (file->index + len > LOG_BUFFER_SIZE)
+    {
+        fwrite(file->buffer, 1, file->index, file->fp);
+        fflush(file->fp);
+        file->index = 0;
+        file->last_flush_tick = xTaskGetTickCount();
+    }
+
+    memcpy(&file->buffer[file->index], data, len);
+    file->index += len;
+}
+
+static void flush_files_timer()
+{
+    TickType_t now = xTaskGetTickCount();
+    for (int i = 0; i < num_open_files; i++)
+    {
+        file_log_t *f = &open_files[i];
+
+        if (f->index == 0) // buffer empty
+        {
+            // check the last time it was written, if too long ago close
+            if ((now - f->last_flush_tick) >= pdMS_TO_TICKS(MAX_FILE_HOLD_TIME_MS))
+            {
+                // been too long with an empty buffer and no writing
+                // close file
+                close_file(f);
+            }
+        }
+
+        if ((now - f->last_flush_tick) >= pdMS_TO_TICKS(LOG_FLUSH_INTERVAL_MS))
+        {
+            fwrite(f->buffer, 1, f->index, f->fp);
+            fflush(f->fp);
+            f->index = 0;
+            f->last_flush_tick = now;
+        }
+    }
 }
 
 static esp_err_t s_example_write_file(const char *path, char *data)
@@ -167,25 +322,37 @@ static void sd_task(void *arg)
 
 void init_sd_task()
 {
-    gpio_set_direction(SPI_CLK, GPIO_MODE_OUTPUT);
-    gpio_set_direction(SPI_MOSI, GPIO_MODE_OUTPUT);
-    gpio_set_direction(SPI_MISO, GPIO_MODE_OUTPUT);
-    gpio_set_direction(SPI_CS0, GPIO_MODE_OUTPUT);
 
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << TOGGLE_SW), // Select the pin
-        .mode = GPIO_MODE_INPUT,               // Set as input mode
-        .pull_up_en = GPIO_PULLUP_ENABLE,      // Enable internal pull-up resistor (optional, e.g., for a button connected to GND)
-        .pull_down_en = GPIO_PULLDOWN_DISABLE, // Disable internal pull-down resistor
-        .intr_type = GPIO_INTR_DISABLE         // Disable interrupts
+    uint64_t output_pin_mask = ((1ULL << SPI_CLK) | (1ULL << SPI_MOSI) | (1ULL << SPI_MISO) | (1ULL << SPI_CS0));
+    gpio_config_t output_conf = {
+        .pin_bit_mask = output_pin_mask,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
     };
-    gpio_config(&io_conf);
+    gpio_config(&output_conf);
+
+    gpio_config_t input_conf = {
+        .pin_bit_mask = (1ULL << TOGGLE_SW),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&input_conf);
+
+
 
     save_queue = xQueueCreate(10, sizeof(save_req_t));
+
+    init_file_array();
+
+
     xTaskCreatePinnedToCore(
         sd_task,
         "sd_task",
-        4*4096,
+        8*4096,
         NULL,
         4,
         NULL,
