@@ -17,6 +17,9 @@ QueueHandle_t get_save_queue()
     return save_queue;
 }
 
+//
+// Fill file array with blank structs
+//
 static void init_file_array()
 {
     for (int i = 0; i < MAX_OPEN_FILES; i++)
@@ -32,6 +35,10 @@ static void init_file_array()
 
 }
 
+//
+// Closes a file that's currently held open in the open files array
+// Basically just fills the struct with 0's
+//
 static void close_file(file_log_t *ft)
 {
 
@@ -54,6 +61,11 @@ static void close_file(file_log_t *ft)
 
 }
 
+
+//
+// Returns the struct of an open file
+// Handles open file array and closes oldest files if necessary
+//
 static file_log_t* get_or_open_file(const char *path)
 {
     TickType_t now = xTaskGetTickCount();
@@ -109,12 +121,8 @@ static file_log_t* get_or_open_file(const char *path)
         // found the oldest file
         file_log_t *oldestfile = &open_files[lru_index];
 
-        // TODO: THIS file_log_t that we are closing,
-        // needs to be filled out with 0's?
-        // we are using stack mem still here
         close_file(oldestfile);
         ESP_LOGI(TAG, "CLOSED File: %s", oldestfile->fname);
-    
 
         // now we have a spot for the new file
         // open file, fill out data_t and return
@@ -136,6 +144,10 @@ static file_log_t* get_or_open_file(const char *path)
     return file;
 }
 
+//
+// Add bytes to the write buffer of a file
+// if buffer is going to fill, it will write to the file
+//
 static void file_buffer_write(file_log_t *file, const char *data, size_t len)
 {
     if (!file) return;
@@ -151,6 +163,12 @@ static void file_buffer_write(file_log_t *file, const char *data, size_t len)
     file->index += len;
 }
 
+//
+// Call this and it will write the buffer to the file if its
+//     been long enough
+//
+// Closes files if they've been open without a write for too long
+//
 static void flush_files_timer()
 {
     TickType_t now = xTaskGetTickCount();
@@ -158,71 +176,90 @@ static void flush_files_timer()
     {
         file_log_t *f = &open_files[i];
 
-        if (f->index == 0) // buffer empty
+        if (strcmp(f->fname, '\0') != 0)
         {
-            // check the last time it was written, if too long ago close
-            if ((now - f->last_flush_tick) >= pdMS_TO_TICKS(MAX_FILE_HOLD_TIME_MS))
+            if (f->index == 0) // buffer empty
             {
-                // been too long with an empty buffer and no writing
-                // close file
-                close_file(f);
+                // check the last time it was written, if too long ago close the file
+                if ((now - f->last_flush_tick) >= pdMS_TO_TICKS(MAX_FILE_HOLD_TIME_MS))
+                {
+                    // been too long with an empty buffer and no writing
+                    // close file
+                    close_file(f);
+                }
+            }
+
+            if ((now - f->last_flush_tick) >= pdMS_TO_TICKS(LOG_FLUSH_INTERVAL_MS))
+            {
+                fwrite(f->buffer, 1, f->index, f->fp);
+                fflush(f->fp);
+                f->index = 0;
+                f->last_flush_tick = now;
             }
         }
-
-        if ((now - f->last_flush_tick) >= pdMS_TO_TICKS(LOG_FLUSH_INTERVAL_MS))
-        {
-            fwrite(f->buffer, 1, f->index, f->fp);
-            fflush(f->fp);
-            f->index = 0;
-            f->last_flush_tick = now;
-        }
     }
 }
 
-static esp_err_t s_example_write_file(const char *path, char *data)
+//
+// Writes data to a file (buffer)
+//
+static esp_err_t write_file(const char *path, char *data)
 {
-    ESP_LOGI(TAG, "Opening file %s", path);
-    FILE *f = fopen(path, "a");
-    if (f == NULL) {
-        ESP_LOGE(TAG, "Failed to open file for writing");
-        return ESP_FAIL;
-    }
-    fprintf(f, "%s", data);
-    fclose(f);
-    ESP_LOGI(TAG, "File written");
+    // ESP_LOGI(TAG, "Opening file %s", path);
+    // FILE *f = fopen(path, "a");
+    // if (f == NULL) {
+    //     ESP_LOGE(TAG, "Failed to open file for writing");
+    //     return ESP_FAIL;
+    // }
+    // fprintf(f, "%s", data);
+    // fclose(f);
+    // ESP_LOGI(TAG, "File written");
+    
+    // find the right struct from the pathname
+    // this means call find or open
+    // then with that struct add data to the buffer
+    file_buffer_write(get_or_open_file(path), data, strlen(data));
 
     return ESP_OK;
 }
 
-static esp_err_t s_example_read_file(const char *path)
-{
-    ESP_LOGI(TAG, "Reading file %s", path);
-    FILE *f = fopen(path, "r");
-    if (f == NULL) {
-        ESP_LOGE(TAG, "Failed to open file for reading");
-        return ESP_FAIL;
-    }
-    char line[512];
-    fgets(line, sizeof(line), f);
-    fclose(f);
+//
+// THis is the esp idf example
+// needs a rewrite to work in this context
+// right now files in the open files array are open in append mode
+//
+// static esp_err_t read_file(const char *path)
+// {
+//     ESP_LOGI(TAG, "Reading file %s", path);
+//     FILE *f = fopen(path, "r");
+//     if (f == NULL) {
+//         ESP_LOGE(TAG, "Failed to open file for reading");
+//         return ESP_FAIL;
+//     }
+//     char line[512];
+//     fgets(line, sizeof(line), f);
+//     fclose(f);
 
-    // strip newline
-    char *pos = strchr(line, '\n');
-    if (pos) {
-        *pos = '\0';
-    }
-    ESP_LOGI(TAG, "Read from file: '%s'", line);
+//     // strip newline
+//     char *pos = strchr(line, '\n');
+//     if (pos) {
+//         *pos = '\0';
+//     }
+//     ESP_LOGI(TAG, "Read from file: '%s'", line);
 
-    return ESP_OK;
-}
+//     return ESP_OK;
+// }
 
+//
+// Handles save requests from the queue
+//
 static int handle_save(save_req_t *save_req)
 {
     esp_err_t good;
     ESP_LOGI(TAG, "GOT FNAME: %s", save_req->fname);
     char path[64];
     snprintf(path, sizeof(path), "%s/%s", MOUNT_POINT, save_req->fname);
-    good = s_example_write_file(path, save_req->data);
+    good = write_file(path, save_req->data);
     if (good != ESP_OK)
     {
         return 1;
@@ -230,6 +267,9 @@ static int handle_save(save_req_t *save_req)
     return 0;
 }
 
+//
+//
+//
 static void sd_task(void *arg)
 {
     esp_err_t ret;
@@ -291,7 +331,7 @@ static void sd_task(void *arg)
     const char *file_hello = MOUNT_POINT"/hello.txt";
     char data[512];
     snprintf(data, 512, "%s %s!\n", "Hello", card->cid.name);
-    ret = s_example_write_file(file_hello, data);
+    ret = write_file(file_hello, data);
     if (ret != ESP_OK) {
         return;
     }
@@ -301,8 +341,10 @@ static void sd_task(void *arg)
     while (1)
     {
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(g_log_interval_ms));
+
         pin_level = gpio_get_level(TOGGLE_SW);
         ESP_LOGI(TAG, "LVL: %d", pin_level);
+
         while (xQueueReceive(get_save_queue(), &save_req, 0))
         {
             if (pin_level)
@@ -316,10 +358,15 @@ static void sd_task(void *arg)
 
             }
         }
+
+        // check and empty file buffers
+        flush_files_timer();
     }
 }
 
-
+//
+//
+//
 void init_sd_task()
 {
 
