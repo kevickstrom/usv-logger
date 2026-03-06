@@ -11,6 +11,12 @@
 #include "config.h"
 #include "esp_timer.h"
 
+static file_log_t open_files[MAX_OPEN_FILES];
+static int num_open_files = 0;
+
+static const char *TAG = "SD_TASK";
+
+static QueueHandle_t save_queue;
 
 QueueHandle_t get_save_queue()
 {
@@ -73,7 +79,7 @@ static file_log_t* get_or_open_file(const char *path)
     // check if the file is open
     for (int i = 0; i < MAX_OPEN_FILES; i++)
     {
-        if (open_files[i].fname != NULL &&
+        if (open_files[i].fname[0] != '\0' &&
             strcmp(open_files[i].fname, path) == 0)
         {
             return &open_files[i]; // found file already open
@@ -90,7 +96,7 @@ static file_log_t* get_or_open_file(const char *path)
         // find first open spot in open file list
         for (int i = 0; i < MAX_OPEN_FILES; i++)
         {
-            if (strcmp(open_files[i].fname,'\0') == 0)
+            if (open_files[i].fname[0] != '\0')
             {
                 file = &open_files[i];
                 FILE *fp = fopen(path, "a");
@@ -176,7 +182,7 @@ static void flush_files_timer()
     {
         file_log_t *f = &open_files[i];
 
-        if (strcmp(f->fname, '\0') != 0)
+        if (f->fname[0] != '\0')
         {
             if (f->index == 0) // buffer empty
             {

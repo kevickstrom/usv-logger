@@ -28,11 +28,5 @@ typedef struct {
     TickType_t last_write_tick;
 } file_log_t;
 
-static file_log_t open_files[MAX_OPEN_FILES];
-static int num_open_files = 0;
-
-static const char *TAG = "SD_TASK";
-
-static QueueHandle_t save_queue;
 QueueHandle_t get_save_queue();
 void init_sd_task();

@@ -3,11 +3,11 @@
 #include "config.h"
 #include "esp_log.h"
 #include "qqqlab_GPS_UBLOX.h"
-#include "sd_task.h"
+#include "sd_task.h" 
 #include <string.h>
 
 static const char *TAG = "GNSS_TASK";
-uart_transaction_t trans;
+static uart_transaction_t trans;
 static int currBaud = 115200;
 
 // ---------------- GPS Interface ----------------

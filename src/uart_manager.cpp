@@ -27,6 +27,49 @@ static void debug_tx_tx(const uart_transaction_t *trans)
         }
 }
 
+void log_rn2483_transaction(uart_transaction_t* trans)
+{
+    static const char *TAG = "RN2483";
+
+    // Print TX in one line
+    ESP_LOGI(TAG, "TX (%d bytes):", trans->tx_len);
+    char tx_line[trans->tx_len * 4 + 1]; // worst case: each byte becomes '0xXX ' (4 chars)
+    char* p = tx_line;
+    for (int i = 0; i < trans->tx_len; i++) {
+        uint8_t c = trans->tx_buf[i];
+        if (c >= 32 && c <= 126) {
+            p += sprintf(p, "%c", c);      // printable ASCII
+        } else if (c == '\r') {
+            p += sprintf(p, "\\r");        // escape CR
+        } else if (c == '\n') {
+            p += sprintf(p, "\\n");        // escape LF
+        } else {
+            p += sprintf(p, "0x%02X", c);  // non-printable hex
+        }
+    }
+    *p = '\0';
+    ESP_LOGI(TAG, "%s", tx_line);
+
+    // Print RX in one line
+    ESP_LOGI(TAG, "RX (%d bytes):", trans->rx_len);
+    char rx_line[trans->rx_len * 4 + 1];
+    p = rx_line;
+    for (int i = 0; i < trans->rx_len; i++) {
+        uint8_t c = trans->rx_buf[i];
+        if (c >= 32 && c <= 126) {
+            p += sprintf(p, "%c", c);
+        } else if (c == '\r') {
+            p += sprintf(p, "\\r");
+        } else if (c == '\n') {
+            p += sprintf(p, "\\n");
+        } else {
+            p += sprintf(p, "0x%02X", c);
+        }
+    }
+    *p = '\0';
+    ESP_LOGI(TAG, "%s", rx_line);
+}
+
 static void uart_manager_task(void *arg)
 {
     uart_transaction_t *trans;
@@ -61,7 +104,8 @@ static void uart_manager_task(void *arg)
             trans->rx_len = len;
 
             ESP_LOGI(TAG, "DEV %d TX: %d bytes, RX: %d bytes", trans->device, trans->tx_len, len);
-            // debug_tx_tx(trans);
+            //debug_tx_tx(trans);
+            log_rn2483_transaction(trans);
 
 
 
