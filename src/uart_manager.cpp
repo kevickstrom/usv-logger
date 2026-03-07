@@ -27,47 +27,72 @@ static void debug_tx_tx(const uart_transaction_t *trans)
         }
 }
 
+static void hex_to_ascii(const char* hex, char* ascii, size_t max_len) {
+    size_t i = 0;
+    while (*hex && i < max_len - 1) {
+        unsigned int val;
+        if (sscanf(hex, "%2x", &val) == 1) {
+            ascii[i++] = (char)val;
+            hex += 2;
+        } else {
+            break;
+        }
+    }
+    ascii[i] = '\0';
+}
+
+// Convert a string to hex representation
+static void str_to_hex(const char* input, char* output)
+{
+    const char hex_chars[] = "0123456789ABCDEF";
+    while (*input)
+    {
+        uint8_t c = *input++;
+        *output++ = hex_chars[(c >> 4) & 0x0F];
+        *output++ = hex_chars[c & 0x0F];
+    }
+    *output = '\0'; // null terminate
+}
+
 void log_rn2483_transaction(uart_transaction_t* trans)
 {
     static const char *TAG = "RN2483";
 
-    // Print TX in one line
+    // --- TX ---
     ESP_LOGI(TAG, "TX (%d bytes):", trans->tx_len);
-    char tx_line[trans->tx_len * 4 + 1]; // worst case: each byte becomes '0xXX ' (4 chars)
-    char* p = tx_line;
+
+    char tx_hex[trans->tx_len * 2 + 1]; // each byte -> 2 hex chars
     for (int i = 0; i < trans->tx_len; i++) {
         uint8_t c = trans->tx_buf[i];
         if (c >= 32 && c <= 126) {
-            p += sprintf(p, "%c", c);      // printable ASCII
-        } else if (c == '\r') {
-            p += sprintf(p, "\\r");        // escape CR
-        } else if (c == '\n') {
-            p += sprintf(p, "\\n");        // escape LF
+            // printable ASCII, keep as-is
+            tx_hex[i] = c;
         } else {
-            p += sprintf(p, "0x%02X", c);  // non-printable hex
+            // non-printable: convert to hex
+            char tmp[3];
+            sprintf(tmp, "%02X", c);
+            tx_hex[i*2] = tmp[0];
+            tx_hex[i*2+1] = tmp[1];
         }
     }
-    *p = '\0';
-    ESP_LOGI(TAG, "%s", tx_line);
+    tx_hex[trans->tx_len * 2] = '\0';
+    ESP_LOGI(TAG, "%s", tx_hex);
 
-    // Print RX in one line
+    // --- RX ---
     ESP_LOGI(TAG, "RX (%d bytes):", trans->rx_len);
-    char rx_line[trans->rx_len * 4 + 1];
-    p = rx_line;
-    for (int i = 0; i < trans->rx_len; i++) {
-        uint8_t c = trans->rx_buf[i];
-        if (c >= 32 && c <= 126) {
-            p += sprintf(p, "%c", c);
-        } else if (c == '\r') {
-            p += sprintf(p, "\\r");
-        } else if (c == '\n') {
-            p += sprintf(p, "\\n");
-        } else {
-            p += sprintf(p, "0x%02X", c);
-        }
-    }
-    *p = '\0';
-    ESP_LOGI(TAG, "%s", rx_line);
+
+    char rx_ascii[128];
+    char rx_hex[trans->rx_len * 2 + 1];
+
+    // Copy RX buffer to a hex string using str_to_hex
+    memcpy(rx_hex, trans->rx_buf, trans->rx_len);
+    rx_hex[trans->rx_len] = '\0';
+    str_to_hex((char*)trans->rx_buf, rx_hex);
+
+    // Convert back to ASCII for logging (optional)
+    hex_to_ascii(rx_hex, rx_ascii, sizeof(rx_ascii));
+
+    ESP_LOGI(TAG, "%s", rx_ascii);
 }
 
 static void uart_manager_task(void *arg)
@@ -105,7 +130,7 @@ static void uart_manager_task(void *arg)
 
             ESP_LOGI(TAG, "DEV %d TX: %d bytes, RX: %d bytes", trans->device, trans->tx_len, len);
             //debug_tx_tx(trans);
-            log_rn2483_transaction(trans);
+            //log_rn2483_transaction(trans);
 
 
 

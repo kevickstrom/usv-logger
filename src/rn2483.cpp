@@ -85,20 +85,22 @@ static void get_hex_string(uint8_t *buff, int buff_len, char *ret)
 }
 
 // Reads from the RX buffer into response until '\n' or EOB
-static int RN2483_response(uint8_t *response)
+int RN2483_response(uint8_t *response)
 {
-	int i = 0;
+    int i = 0;
+    uint8_t c;
 
-	while (*response != '\n' && i < RN2483_MAX_BUFF)
-	{
-		*response++ = read();
-		i++;
-	}
+    while (i < RN2483_MAX_BUFF - 1)
+    {
+        c = read();
+        response[i++] = c;
 
-    if (i <= 0)
-        return RN2483_ERR_PANIC;
-    else
-        return i;
+        if (c == '\n')
+            break;
+    }
+
+    response[i] = '\0';
+    return i;
 }
 
 //PUBLIC

@@ -4,11 +4,14 @@
 #include "esp_log.h"
 #include "qqqlab_GPS_UBLOX.h"
 #include "sd_task.h" 
+#include "lora_task.h"
 #include <string.h>
 
 static const char *TAG = "GNSS_TASK";
 static uart_transaction_t trans;
 static int currBaud = 115200;
+static lora_request_t lora_req;
+static char lora_tx_static_buf[256];
 
 // ---------------- GPS Interface ----------------
 class GPS_Interface_IDF : public AP_GPS_UBLOX {
@@ -123,18 +126,41 @@ void gnss_task(void *arg) {
 
             if (len > 0)
             {
+                // file saving queue
                 snprintf(save_req.fname, sizeof(save_req.fname), "%s", "gps_log.csv");
                 save_req.device = GPS;
-
                 save_req.len = (len < sizeof(save_req.data)) ? len : sizeof(save_req.data);
-
                 ESP_LOGI(TAG, "queued %lu bytes for file: %s", save_req.len, save_req.fname);
+                //xQueueSend(get_save_queue(), &save_req, portMAX_DELAY);
 
-                xQueueSend(get_save_queue(), &save_req, portMAX_DELAY);
-            }
+
+
+                // lora transmit queue
+                lora_req.device = GPS;
+                lora_req.id = GPS;
+
+                // point to static buffer
+                lora_req.lora_tx_buf = lora_tx_static_buf;
+
+                // determine how many bytes we can safely copy
+                size_t tx_len = (save_req.len < sizeof(lora_tx_static_buf) - 1) ? save_req.len : sizeof(lora_tx_static_buf) - 1;
+
+                // copy exact bytes (binary-safe) and null-terminate
+                for (size_t i = 0; i < tx_len; i++)
+                    lora_tx_static_buf[i] = save_req.data[i];
+                lora_tx_static_buf[tx_len] = '\0';
+
+                lora_req.lora_tx_len = tx_len;
+
+                // log for sanity
+                ESP_LOGI(TAG, "lora Q: %.*s", (int)lora_req.lora_tx_len, lora_req.lora_tx_buf);
+
+                // send to queue
+                xQueueSend(get_lora_queue(), &lora_req, portMAX_DELAY);
+                }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
+                        vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
     }
 }
 

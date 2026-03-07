@@ -142,6 +142,8 @@ extern int RN2483_join(int mode);
 */
 extern int RN2483_tx(const char *buff, bool confirm, char *downlink);
 
+int RN2483_response(uint8_t *response);
+
 #endif // RN2483
 
 #ifndef RN2483_CONFIG_H

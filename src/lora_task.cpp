@@ -15,6 +15,7 @@ static int currBaud = 57600;
 static QueueHandle_t lora_queue;
 static lora_request_t lora_req;
 static uart_transaction_t trans;
+char response[128];
 
 // Forward declaration of the task
 static void lora_task(void *arg);
@@ -49,7 +50,6 @@ lora_request_t* get_curr_request()
 
 void write_uart(const char* data, size_t len)
 {
-    ESP_LOGI(TAG, "building trans");
     memset(&trans, 0, sizeof(trans));
 
     memcpy(trans.tx_buf, data, len);
@@ -58,13 +58,11 @@ void write_uart(const char* data, size_t len)
     trans.baud = currBaud;
     trans.timeout_ms = 500;
     trans.caller = xTaskGetCurrentTaskHandle();
-    ESP_LOGI(TAG, "built trans");
     uart_transaction_t *ptr = &trans;
     if(xQueueSend(get_uart_queue(), &ptr, portMAX_DELAY) != pdTRUE)
     {
         return;
     }
-    ESP_LOGI(TAG, "put on queue");
 
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
@@ -80,47 +78,69 @@ void write_uart(const char* data, size_t len)
 // set gpio led on RN
 void set_led1()
 {
-    char response[64];
-    ESP_LOGI(TAG, "SET LED");
     RN2483_command("sys set pindig GPIO8 1\r\n", response);
 
 }
 
 // RN Radio init params
-void lora_param_init()
-{
-    char response[64];
+void lora_param_init() {
+    ESP_LOGI(TAG, "Pausing MAC");
     RN2483_command("mac pause\r\n", response);
-    ESP_LOGI(TAG, "MAC paused: %s", response);
-    // Set LoRa radio mode: SF7BW125, 868 MHz (example for EU868)
-    ESP_LOGI(TAG, "set mod lora");
+    ESP_LOGI(TAG, "RN: %s", response);
+
+    ESP_LOGI(TAG, "Setting LoRa mode");
     RN2483_command("radio set mod lora\r\n", response);
-    ESP_LOGI(TAG, "RN: %c", response);
+    ESP_LOGI(TAG, "RN: %s", response);
 
-    ESP_LOGI(TAG, "set freq");
-    // Set frequency (example 868.1 MHz)
-    RN2483_command("radio set freq 868100000\r\n", response);
-    ESP_LOGI(TAG, "RN: %c", response);
+    ESP_LOGI(TAG, "Setting frequency");
+    RN2483_command("radio set freq 865000000\r\n", response);
+    ESP_LOGI(TAG, "RN: %s", response);
 
-    ESP_LOGI(TAG, "Set sf");
-    // Set spreading factor (SF7-SF12)
-    RN2483_command("radio set sf sf7\r\n", response);
-    ESP_LOGI(TAG, "RN: %c", response);
-
-    ESP_LOGI(TAG, "set bandwidth");
-    // Set bandwidth (BW125 = 125 kHz)
+    ESP_LOGI(TAG, "Setting bandwidth");
     RN2483_command("radio set bw 125\r\n", response);
-    ESP_LOGI(TAG, "RN: %c", response);
+    ESP_LOGI(TAG, "RN: %s", response);
 
-    ESP_LOGI(TAG, "Set coding rate");
-    // Set coding rate (4/5 default)
+    ESP_LOGI(TAG, "Setting spreading factor");
+    RN2483_command("radio set sf sf7\r\n", response);
+    ESP_LOGI(TAG, "RN: %s", response);
+
+    ESP_LOGI(TAG, "Setting coding rate");
     RN2483_command("radio set cr 4/5\r\n", response);
-    ESP_LOGI(TAG, "RN: %c", response);
+    ESP_LOGI(TAG, "RN: %s", response);
 
-    ESP_LOGI(TAG, "Set Power 14");
-    // Optional: set power (2–14 dBm typical)
+    ESP_LOGI(TAG, "Setting preamble length");
+    RN2483_command("radio set prlen 8\r\n", response);
+    ESP_LOGI(TAG, "RN: %s", response);
+
+    ESP_LOGI(TAG, "Enable CRC");
+    RN2483_command("radio set crc on\r\n", response);
+    ESP_LOGI(TAG, "RN: %s", response);
+
+    ESP_LOGI(TAG, "Set sync word");
+    RN2483_command("radio set sync 12\r\n", response);
+    ESP_LOGI(TAG, "RN: %s", response);
+
+    ESP_LOGI(TAG, "Set TX power");
     RN2483_command("radio set pwr 14\r\n", response);
-    ESP_LOGI(TAG, "RN: %c", response);
+    ESP_LOGI(TAG, "RN: %s", response);
+
+    ESP_LOGI(TAG, "Disable watchdog");
+    RN2483_command("radio set wdt 0\r\n", response);
+    ESP_LOGI(TAG, "RN: %s", response);
+}
+
+void hex_to_ascii(const char* hex, char* ascii, size_t max_len) {
+    size_t i = 0;
+    while (*hex && i < max_len - 1) {
+        unsigned int val;
+        if (sscanf(hex, "%2x", &val) == 1) {
+            ascii[i++] = (char)val;
+            hex += 2;
+        } else {
+            break;
+        }
+    }
+    ascii[i] = '\0';
 }
 
 // Convert a string to hex representation
@@ -144,15 +164,22 @@ void radio_tx(const char* input, size_t len)
     char cmd[2*len + 20]; // enough for "radio tx " + payload + "\r\n"
     snprintf(cmd, sizeof(cmd), "radio tx %s\r\n", payload_hex);
 
-    char response[64];
+    //const char* cmd = "radio tx 48656C6C6F\r\n";
+
+    ESP_LOGI(TAG, "req: %s", cmd);
     RN2483_command(cmd, response);
-    ESP_LOGI(TAG, "RN: %c", response);
+    // ESP_LOGI(TAG, "RN: %s", response);
+    // if (strcmp(response, "ok\r\n") == 0)
+    //     {
+    //         RN2483_response((uint8_t*)response);
+    //         ESP_LOGI(TAG, "TX result: %s", response);
+    //     }
+    
 }
 
 // reset gpio led
 void reset_led1()
 {
-    char response[64];
     RN2483_command("sys set pindig GPIO8 0\r\n", response);
     //lora_param_init();
 }
@@ -166,30 +193,46 @@ static void lora_task(void *arg)
     lora_req.id = -1;
     bool toggled = false;
     TickType_t last_wake = xTaskGetTickCount();
-    ESP_LOGI(TAG, "almost rdy");
+    lora_param_init();
     while (1)
     {
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(g_sample_interval_ms));
-        TickType_t now = xTaskGetTickCount();
-        if ((now - last_wake) >= pdMS_TO_TICKS(g_log_interval_ms))
+        // TickType_t now = xTaskGetTickCount();
+        //         const char* msg = "Hello";
+        // radio_tx(msg, 6);
+        
+        while (xQueueReceive(get_lora_queue(), &lora_req, 0))
         {
-            if (toggled)
-            {
-                ESP_LOGI(TAG, "goingto");
-                reset_led1();
-                toggled = !toggled;
-            }
-            else
-            {
-                ESP_LOGI(TAG, "gunna");
-                set_led1();
-                toggled = !toggled;
-            }
+            
+            radio_tx(lora_req.lora_tx_buf, lora_req.lora_tx_len);
         }
 
-        char msg[] = "hello";
-        radio_tx(msg, strlen(msg));
-        ESP_LOGI(TAG, "TX: %s", msg);
+        // if ((now - last_wake) >= pdMS_TO_TICKS(g_log_interval_ms))
+        // {
+        //     if (toggled)
+        //     {
+        //         reset_led1();
+        //         toggled = !toggled;
+        //     }
+        //     else
+        //     {
+        //         set_led1();
+        //         toggled = !toggled;
+        //     }
+        // }
+
+        //char msg[] = "hello";
+
+        //radio_tx();
+        //ESP_LOGI(TAG, "TX: %s", msg);
+        // RN2483_command("radio tx 48656C6C6F\r\n", response);
+        // ESP_LOGI(TAG, "TX start: %s", response);
+
+        // if (strcmp(response, "ok\r\n") == 0)
+        // {
+        //     RN2483_response((uint8_t*)response);
+        //     ESP_LOGI(TAG, "TX result: %s", response);
+        // }
 
     }
 }

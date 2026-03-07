@@ -29,7 +29,7 @@ extern "C" void app_main()
     init_uart_manager();
 
     ESP_LOGI(TAG, "Initializing GNSS task...");
-    //init_gnss_task();
+    init_gnss_task();
 
     ESP_LOGI(TAG, "Initializing Ping task...");
     //init_ping_task();
