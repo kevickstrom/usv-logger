@@ -32,14 +32,14 @@ extern "C" void app_main()
     init_gnss_task();
 
     ESP_LOGI(TAG, "Initializing Ping task...");
-    //init_ping_task();
+    init_ping_task();
     //init_ping_distance_task();
 
     ESP_LOGI(TAG, "Initializing Aggregator...");
     //init_aggregator();
 
     ESP_LOGI(TAG, "Initializing SD task...");
-    //init_sd_task();
+    init_sd_task();
 
     ESP_LOGI(TAG, "Initializing LoRa task...");
     init_lora_task();

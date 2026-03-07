@@ -7,6 +7,8 @@
 #include "esp_log.h"
 #include "ping-message.h"
 #include "ping-parser.h"
+#include "sd_task.h"
+#include "lora_task.h"
 
 // https://docs.bluerobotics.com/ping-protocol/
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-common/
@@ -16,6 +18,9 @@
 
 static QueueHandle_t ping_queue;
 static const char *TAG = "PING_TASK";
+static save_req_t save_req;
+static lora_request_t lora_req;
+static char lora_tx_static_buf[256];
 
 QueueHandle_t get_ping_queue()
 {
@@ -113,11 +118,9 @@ static void set_range(uint32_t scan_start_mm, uint32_t scan_length_mm, uart_tran
 }
 
 // 1002 set_speed_of_sound
-static void set_speed_of_sound(float sos_m_s, uart_transaction_t *trans)
+static void set_speed_of_sound(float sos_val, uart_transaction_t *trans)
 {
-    // Ping1D expects speed of sound in hundredths of m/s
-    // e.g., 343.0 m/s -> 34300
-    uint32_t sos_val = (uint32_t)(sos_m_s * 100);
+    // Ping1D expects speed of sound in mm/s
 
     ping_message msg(64);
     msg.set_message_id(1002);       // general request
@@ -149,7 +152,7 @@ static void set_speed_of_sound(float sos_m_s, uart_transaction_t *trans)
     xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    ESP_LOGI(TAG, "Set speed of sound to %.2f m/s", sos_m_s);
+    ESP_LOGI(TAG, "Set speed of sound to %.2f mm/s", sos_val);
 
 }
 
@@ -182,6 +185,35 @@ static void send_set_mode_auto(uint8_t mode_auto, uart_transaction_t *trans)
     ESP_LOGI("PING_SEND", "Sent set_mode_auto: %u (%s)",
              mode_auto,
              mode_auto ? "AUTO" : "MANUAL");
+}
+
+// 1005 set_gain_setting
+static void set_gain_setting(uint8_t gain_setting, uart_transaction_t *trans)
+{
+    // payload = 1 byte
+    ping_message msg(16);
+
+    msg.set_message_id(1005);
+    msg.set_source_device_id(0);
+    msg.set_destination_device_id(0);
+    msg.set_payload_length(1);
+
+    msg.msgData[ping_message::headerLength + 0] = gain_setting;
+
+    msg.updateChecksum();
+
+    memset(trans, 0, sizeof(*trans));
+    trans->device = PING;
+    trans->baud = DEFAULT_BAUD;
+    memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
+    trans->tx_len = msg.msgDataLength();
+    trans->timeout_ms = 500;
+    trans->caller = xTaskGetCurrentTaskHandle();
+
+    xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    ESP_LOGI(TAG, "set_gain_setting: %u", gain_setting);
 }
 
 // 1006 set_ping_enable
@@ -419,7 +451,7 @@ static bool parse_distance(const uint8_t *p, size_t len, ping_distance_t *ping_d
     }
 
     profile->profile_data_length = profile_data_len;
-    profile->timestamp = xTaskGetTickCount(); // optional timestamp
+    profile->timestamp = pdTICKS_TO_MS(xTaskGetTickCount()); // optional timestamp
 
     // Copy the profile data
     if (profile_data_len > sizeof(profile->profile_data)) {
@@ -428,12 +460,75 @@ static bool parse_distance(const uint8_t *p, size_t len, ping_distance_t *ping_d
     }
     memcpy(profile->profile_data, &p[26], profile_data_len);
 
-    ESP_LOGI(TAG, "Profile parsed: dist=%u mm conf=%u len=%u", 
-             profile->distance_mm, profile->confidence, profile->profile_data_length);
+    ESP_LOGI(TAG, "Profile parsed: dist=%u mm conf=%u len=%u gain=%u", 
+             profile->distance_mm, profile->confidence, profile->profile_data_length, profile->gain_setting);
+
+    // for (size_t i = 0; i < profile_data_len; i++) {
+    //     ESP_LOGI(TAG,"bin %zu: %u\n", i, profile->profile_data[i]);
+    // }
 
     return true;
 }
 
+void make_csv(const ping_profile_t *p, char **csvln, size_t *csvlen)
+{
+    static char buffer[128];  // static storage, no malloc
+
+    int len = snprintf(
+    buffer,
+    sizeof(buffer),
+    "%lu,%lu,%lu,%u,%u,%lu,%lu,%lu",
+    p->timestamp,
+    p->ping_number,
+    p->distance_mm,
+    p->confidence,
+    p->transmit_duration_us,
+    p->scan_start_mm,
+    p->scan_length_mm,
+    p->gain_setting
+);
+
+    if (len < 0) {
+        *csvln = NULL;
+        *csvlen = 0;
+        return;
+    }
+
+    if ((size_t)len >= sizeof(buffer)) {
+        len = sizeof(buffer) - 1;  // truncated
+    }
+
+    *csvln = buffer;
+    *csvlen = (size_t)len;
+}
+
+static void record_data(char *tosave)
+{
+    // file saving queue
+    int len = snprintf(save_req.data, sizeof(save_req.data),"%s",tosave);
+    snprintf(save_req.fname, sizeof(save_req.fname), "%s", "ping_log.csv");
+    save_req.device = PING;
+    save_req.len = (len < sizeof(save_req.data)) ? len : sizeof(save_req.data);
+    ESP_LOGI(TAG, "queued %lu bytes for file: %s", save_req.len, save_req.fname);
+
+    xQueueSend(get_save_queue(), &save_req, portMAX_DELAY);
+    
+
+
+    // lora transmit queue
+    lora_req.device = PING;
+    lora_req.id = PING;
+    lora_req.lora_tx_buf = lora_tx_static_buf;
+    size_t tx_len = (save_req.len < sizeof(lora_tx_static_buf) - 1) ? save_req.len : sizeof(lora_tx_static_buf) - 1;
+    for (size_t i = 0; i < tx_len; i++)
+        lora_tx_static_buf[i] = save_req.data[i];
+    lora_tx_static_buf[tx_len] = '\0';
+    lora_req.lora_tx_len = tx_len;
+
+    // send to queue
+    xQueueSend(get_lora_queue(), &lora_req, portMAX_DELAY);
+    
+}
 // FREE RTOS TASK
 
 void ping_task(void *arg)
@@ -463,7 +558,10 @@ void ping_task(void *arg)
         ESP_LOGI(TAG, "Ping1D responded (%d bytes)", trans.rx_len);
     }
     
-    set_speed_of_sound(343.0f, &trans); // 343 m/s at ~20°C
+    send_set_mode_auto(0, &trans);
+    set_speed_of_sound(343000, &trans); // 343 m/s at ~20°C
+    set_range(100, 3000, &trans);
+    set_gain_setting(6, &trans);
     vTaskDelay(pdMS_TO_TICKS(50));
    
 
@@ -472,23 +570,25 @@ void ping_task(void *arg)
         // Send Request
 
         //send_general_request(1212, &trans);   // distance
-        if (flip){
-            //ping_distance(&trans);
-            get_range(&trans);
-            //set_range(0, 2000, &trans); // scan_start=1 m, scan_length=2 m
-            flip = !flip;
-        }
-        else{
-            //set_speed_of_sound(340.0f, &trans);
-            //send_general_request(4, &trans);
-            //get_device_info(&trans);
-            //send_profile_request(&trans, 0);
-            //set_range(0, 2000, &trans); // scan_start=1 m, scan_length=2 m
-            get_mode_auto(&trans);
-            //ESP_LOGI(TAG, "Requested speed of sound");
-            flip = !flip;
-        }
-
+        // if (flip){
+        //     //ping_distance(&trans);
+        //     //get_range(&trans);
+        //     //set_range(0, 2000, &trans); // scan_start=1 m, scan_length=2 m
+        //     set_gain_setting(6, &trans);
+        //     flip = !flip;
+        // }
+        // else{
+        //     //set_speed_of_sound(340.0f, &trans);
+        //     //send_general_request(4, &trans);
+        //     //get_device_info(&trans);
+        //     //send_profile_request(&trans, 0);
+        //     //set_range(0, 2000, &trans); // scan_start=1 m, scan_length=2 m
+        //     //get_mode_auto(&trans);
+        //     //ESP_LOGI(TAG, "Requested speed of sound");
+        //     send_profile_request(&trans, 0);
+        //     flip = !flip;
+        // }
+        send_profile_request(&trans, 0);
         // Parse Response
         if (trans.rx_len > 0)
         {
@@ -543,7 +643,13 @@ void ping_task(void *arg)
                     
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(500));
+
+        char* csvln;
+        size_t csvlen;
+        make_csv(&profile, &csvln, &csvlen);
+        record_data(csvln);
+
+        vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
     }
 }
 

@@ -34,7 +34,7 @@ static void init_file_array()
         TickType_t now = xTaskGetTickCount();
         ft->fname[0] = '\0';
         ft->index = 0;
-        memset(ft->buffer, 0, sizeof(ft->buffer));
+        memset(ft->buffer, 0, LOG_BUFFER_SIZE);
         ft->last_flush_tick = now;
         ft->last_write_tick = now;
     }
@@ -85,7 +85,7 @@ static file_log_t* get_or_open_file(const char *path)
             return &open_files[i]; // found file already open
         }
     }
-
+    ESP_LOGI(TAG, "MAKINGFILE");
     file_log_t *file = NULL;
     // file not yet opened
     // put file in rotation
@@ -96,11 +96,10 @@ static file_log_t* get_or_open_file(const char *path)
         // find first open spot in open file list
         for (int i = 0; i < MAX_OPEN_FILES; i++)
         {
-            if (open_files[i].fname[0] != '\0')
+            if (open_files[i].fname[0] == '\0')
             {
                 file = &open_files[i];
-                FILE *fp = fopen(path, "a");
-                file->fp = fp;
+                file->fp = fopen(path, "a");
                 num_open_files++;
                 break;
             }
@@ -132,14 +131,13 @@ static file_log_t* get_or_open_file(const char *path)
 
         // now we have a spot for the new file
         // open file, fill out data_t and return
-        FILE *fp = fopen(path, "a");
-        if (!fp)
+        file->fp = fopen(path, "a");
+        if (file->fp)
         {
             ESP_LOGE(TAG, "Failed to open file: %s", path);
             return NULL;
         }
         file = &open_files[lru_index];
-        file->fp = fp;
     }
     snprintf(file->fname, sizeof(file->fname), "%s", path);
     file->index = 0;
@@ -281,6 +279,8 @@ static void sd_task(void *arg)
     esp_err_t ret;
     save_req_t save_req;
 
+    init_file_array();
+
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
         .format_if_mount_failed = false,
         .max_files = 5,
@@ -398,8 +398,6 @@ void init_sd_task()
 
 
     save_queue = xQueueCreate(10, sizeof(save_req_t));
-
-    init_file_array();
 
 
     xTaskCreatePinnedToCore(

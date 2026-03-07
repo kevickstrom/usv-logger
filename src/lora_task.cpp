@@ -166,9 +166,9 @@ void radio_tx(const char* input, size_t len)
 
     //const char* cmd = "radio tx 48656C6C6F\r\n";
 
-    ESP_LOGI(TAG, "req: %s", cmd);
+    //ESP_LOGI(TAG, "%s", cmd);
     RN2483_command(cmd, response);
-    // ESP_LOGI(TAG, "RN: %s", response);
+    //ESP_LOGI(TAG, "RN: %s", response);
     // if (strcmp(response, "ok\r\n") == 0)
     //     {
     //         RN2483_response((uint8_t*)response);
@@ -196,7 +196,7 @@ static void lora_task(void *arg)
     lora_param_init();
     while (1)
     {
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(g_sample_interval_ms));
+        //vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(g_sample_interval_ms));
         // TickType_t now = xTaskGetTickCount();
         //         const char* msg = "Hello";
         // radio_tx(msg, 6);
@@ -205,8 +205,9 @@ static void lora_task(void *arg)
         {
             
             radio_tx(lora_req.lora_tx_buf, lora_req.lora_tx_len);
+            ESP_LOGI(TAG, "%s", lora_req.lora_tx_buf);
         }
-
+        vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
         // if ((now - last_wake) >= pdMS_TO_TICKS(g_log_interval_ms))
         // {
         //     if (toggled)
