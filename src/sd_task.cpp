@@ -421,7 +421,7 @@ void init_sd_task()
         "sd_task",
         8*4096,
         NULL,
-        4,
+        8,
         NULL,
         1
     );

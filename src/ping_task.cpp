@@ -15,7 +15,7 @@
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-ping1d/
 
 #define DEFAULT_BAUD 115200
-
+static uint32_t default_timeout_ms = 100;
 static QueueHandle_t ping_queue;
 static const char *TAG = "PING_TASK";
 static save_req_t save_req;
@@ -57,7 +57,7 @@ static void send_general_request(uint16_t requested_id, uart_transaction_t *tran
     trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
-    trans->timeout_ms = 500;
+    trans->timeout_ms = default_timeout_ms;
     trans->caller = xTaskGetCurrentTaskHandle();
 
     ESP_LOGI(TAG, "Requesting %d", requested_id);
@@ -108,7 +108,7 @@ static void set_range(uint32_t scan_start_mm, uint32_t scan_length_mm, uart_tran
     trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
-    trans->timeout_ms = 500;
+    trans->timeout_ms = default_timeout_ms;
     trans->caller = xTaskGetCurrentTaskHandle();
 
     xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
@@ -146,7 +146,7 @@ static void set_speed_of_sound(float sos_val, uart_transaction_t *trans)
     trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
-    trans->timeout_ms = 500;
+    trans->timeout_ms = default_timeout_ms;
     trans->caller = xTaskGetCurrentTaskHandle();
 
     xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
@@ -176,7 +176,7 @@ static void send_set_mode_auto(uint8_t mode_auto, uart_transaction_t *trans)
     trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
-    trans->timeout_ms = 500;
+    trans->timeout_ms = default_timeout_ms;
     trans->caller = xTaskGetCurrentTaskHandle();
 
     xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
@@ -207,7 +207,7 @@ static void set_gain_setting(uint8_t gain_setting, uart_transaction_t *trans)
     trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
-    trans->timeout_ms = 500;
+    trans->timeout_ms = default_timeout_ms;
     trans->caller = xTaskGetCurrentTaskHandle();
 
     xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
@@ -262,11 +262,14 @@ static void send_profile_request( uart_transaction_t *trans,uint16_t profile_id 
     trans->baud = DEFAULT_BAUD;
     memcpy(trans->tx_buf, msg.msgData, msg.msgDataLength());
     trans->tx_len = msg.msgDataLength();
-    trans->timeout_ms = 500;
+    trans->timeout_ms = default_timeout_ms;
     trans->caller = xTaskGetCurrentTaskHandle();
 
     xQueueSend(get_uart_queue(), &trans, portMAX_DELAY);
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    //xQueueSend(get_uart_queue(), &trans, pdMS_TO_TICKS(100));
+    //ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+
 
     ESP_LOGI(TAG, "Requested Ping1D Profile (ID=%u)", profile_id);
 
@@ -451,7 +454,7 @@ static bool parse_distance(const uint8_t *p, size_t len, ping_distance_t *ping_d
     }
 
     profile->profile_data_length = profile_data_len;
-    profile->timestamp = pdTICKS_TO_MS(xTaskGetTickCount()); // optional timestamp
+    profile->timestamp = esp_timer_get_time() / 1000; // optional timestamp
 
     // Copy the profile data
     if (profile_data_len > sizeof(profile->profile_data)) {
@@ -477,7 +480,7 @@ void make_csv(const ping_profile_t *p, char **csvln, size_t *csvlen)
     int len = snprintf(
     buffer,
     sizeof(buffer),
-    "%lu,%lu,%lu,%u,%u,%lu,%lu,%lu",
+    "%lld,%lu,%lu,%u,%u,%lu,%lu,%lu",
     p->timestamp,
     p->ping_number,
     p->distance_mm,
@@ -549,7 +552,7 @@ void ping_task(void *arg)
     bool flip = false;
     
     // send request
-    // asf for device_info on init
+    // ask for device_info on init
     send_general_request(4, &trans);   // device_info
 
     if (trans.rx_len <= 0) {
@@ -564,7 +567,7 @@ void ping_task(void *arg)
     set_gain_setting(6, &trans);
     vTaskDelay(pdMS_TO_TICKS(50));
    
-
+    bool profile_made = false;
     while (1)
     {
         // Send Request
@@ -589,6 +592,7 @@ void ping_task(void *arg)
         //     flip = !flip;
         // }
         send_profile_request(&trans, 0);
+        profile_made = false;
         // Parse Response
         if (trans.rx_len > 0)
         {
@@ -634,6 +638,11 @@ void ping_task(void *arg)
                     else if (msg_id == 1300) // profile response
                     {
                         parse_profile(p, parser.rxMessage.payload_length(), &profile);
+                        profile_made = true;
+                        // char* csvln;
+                        // size_t csvlen;
+                        // make_csv(&profile, &csvln, &csvlen);
+                        // record_data(csvln);
                     }
                     else
                     {
@@ -643,11 +652,13 @@ void ping_task(void *arg)
                     
             }
         }
-
-        char* csvln;
-        size_t csvlen;
-        make_csv(&profile, &csvln, &csvlen);
-        record_data(csvln);
+        if (profile_made)
+        {
+            char* csvln;
+            size_t csvlen;
+            make_csv(&profile, &csvln, &csvlen);
+            record_data(csvln);
+        }
 
         vTaskDelay(pdMS_TO_TICKS(g_sample_interval_ms));
     }
@@ -665,6 +676,6 @@ void init_ping_task()
         NULL,
         8,
         NULL,
-        0
+        1
     );
 }

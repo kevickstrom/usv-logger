@@ -214,7 +214,7 @@ typedef struct {
     uint32_t gain_setting;
     uint16_t profile_data_length;
     uint8_t profile_data[512];
-    uint32_t timestamp;
+    int64_t timestamp;
 } ping_profile_t;
 
 // 1301 oss_profile_configuration

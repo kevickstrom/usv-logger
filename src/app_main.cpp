@@ -22,7 +22,7 @@ extern "C" void app_main()
 
     // Set global intervals
     g_sample_interval_ms = 50;
-    g_log_interval_ms = 2000;
+    g_log_interval_ms = 500;
 
     // Initialize tasks
     ESP_LOGI(TAG, "Initializing UART task...");

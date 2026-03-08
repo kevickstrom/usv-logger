@@ -11,7 +11,7 @@
 
 static const char *TAG = "LORA";
 static int currBaud = 57600;
-
+static uint32_t default_timeout_ms = 25;
 static QueueHandle_t lora_queue;
 static lora_request_t lora_req;
 static uart_transaction_t trans;
@@ -32,7 +32,7 @@ void init_lora_task()
         "LORA_TASK",
         4096,   // stack size
         NULL,   // task parameter
-        5,      // priority
+        8,      // priority
         NULL,   // task handle
         1       // core
     );
@@ -56,7 +56,7 @@ void write_uart(const char* data, size_t len)
     trans.tx_len = len;
     trans.device = LORA;
     trans.baud = currBaud;
-    trans.timeout_ms = 500;
+    trans.timeout_ms = default_timeout_ms;
     trans.caller = xTaskGetCurrentTaskHandle();
     uart_transaction_t *ptr = &trans;
     if(xQueueSend(get_uart_queue(), &ptr, portMAX_DELAY) != pdTRUE)

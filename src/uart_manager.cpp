@@ -125,7 +125,7 @@ static void uart_manager_task(void *arg)
             int len = uart_read_bytes(UART_PORT,
                                       trans->rx_buf,
                                       512,
-                                      pdMS_TO_TICKS(500));    
+                                      pdMS_TO_TICKS(trans->timeout_ms));    
             trans->rx_len = len;
 
             ESP_LOGI(TAG, "DEV %d TX: %d bytes, RX: %d bytes", trans->device, trans->tx_len, len);
@@ -153,7 +153,7 @@ void init_uart_manager()
     gpio_set_direction(MUX_A1, GPIO_MODE_OUTPUT);
     gpio_set_direction(MUX_A2, GPIO_MODE_OUTPUT);
 
-    uart_queue = xQueueCreate(10, sizeof(uart_transaction_t*));
+    uart_queue = xQueueCreate(40, sizeof(uart_transaction_t*));
 
     mux_select(PING);
     const int UART_BUF_SIZE = 2048;

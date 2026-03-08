@@ -1,5 +1,6 @@
 #include "gnss_task.h"
 #include "uart_manager.h"
+#include "esp_timer.h"
 #include "config.h"
 #include "esp_log.h"
 #include "qqqlab_GPS_UBLOX.h"
@@ -12,6 +13,7 @@ static uart_transaction_t trans;
 static int currBaud = 115200;
 static lora_request_t lora_req;
 static char lora_tx_static_buf[256];
+static uint32_t default_timeout_ms = 100;
 
 // ---------------- GPS Interface ----------------
 class GPS_Interface_IDF : public AP_GPS_UBLOX {
@@ -41,7 +43,7 @@ public:
         trans.tx_len = len;
         trans.device = GPS;
         trans.baud = currBaud;
-        trans.timeout_ms = 500;
+        trans.timeout_ms = default_timeout_ms;
         trans.caller = xTaskGetCurrentTaskHandle();  // Notifies GNSS task
 
         uart_transaction_t *ptr = &trans;
@@ -111,9 +113,10 @@ void gnss_task(void *arg) {
         if ((int)gps.state.time_week_ms != 0)
         {
             memset(&save_req, 0, sizeof(save_req));
-
+            int now = esp_timer_get_time() / 1000;
             int len = snprintf(save_req.data, sizeof(save_req.data),
-                            "tow:%d, dt:%d, sats:%d, lat:%d, lng:%d, alt:%d, hacc:%d, vacc:%d, fix:%d\n",
+                            "%d, tow:%d, dt:%d, sats:%d, lat:%d, lng:%d, alt:%d, hacc:%d, vacc:%d, fix:%d\n",
+                            now,
                             (int)gps.state.time_week_ms,
                             (int)gps.timing.average_delta_us,
                             (int)gps.state.num_sats,
@@ -166,6 +169,6 @@ void init_gnss_task() {
         NULL,
         8,
         NULL,
-        0
+        1
     );
 }
