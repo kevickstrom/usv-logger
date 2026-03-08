@@ -34,6 +34,7 @@ static void init_file_array()
         TickType_t now = xTaskGetTickCount();
         ft->fname[0] = '\0';
         ft->index = 0;
+        ft->fp = NULL;
         memset(ft->buffer, 0, LOG_BUFFER_SIZE);
         ft->last_flush_tick = now;
         ft->last_write_tick = now;
@@ -63,6 +64,7 @@ static void close_file(file_log_t *ft)
     ft->last_write_tick = now;
 
     fclose(ft->fp);
+    ft->fp = NULL;
     num_open_files -= 1;
 
 }
@@ -82,6 +84,7 @@ static file_log_t* get_or_open_file(const char *path)
         if (open_files[i].fname[0] != '\0' &&
             strcmp(open_files[i].fname, path) == 0)
         {
+            ESP_LOGI(TAG, "Found open file");
             return &open_files[i]; // found file already open
         }
     }
@@ -100,7 +103,8 @@ static file_log_t* get_or_open_file(const char *path)
             {
                 file = &open_files[i];
                 file->fp = fopen(path, "a");
-                num_open_files++;
+                //snprintf(file->fname, sizeof(file->fname), "%s", path);
+                //num_open_files++;
                 break;
             }
         }
@@ -125,19 +129,19 @@ static file_log_t* get_or_open_file(const char *path)
 
         // found the oldest file
         file_log_t *oldestfile = &open_files[lru_index];
-
-        close_file(oldestfile);
         ESP_LOGI(TAG, "CLOSED File: %s", oldestfile->fname);
+        close_file(oldestfile);
+        
 
         // now we have a spot for the new file
         // open file, fill out data_t and return
+        file = &open_files[lru_index];
         file->fp = fopen(path, "a");
-        if (file->fp)
+        if (!file->fp)
         {
             ESP_LOGE(TAG, "Failed to open file: %s", path);
             return NULL;
         }
-        file = &open_files[lru_index];
     }
     snprintf(file->fname, sizeof(file->fname), "%s", path);
     file->index = 0;
@@ -154,17 +158,21 @@ static file_log_t* get_or_open_file(const char *path)
 //
 static void file_buffer_write(file_log_t *file, const char *data, size_t len)
 {
-    if (!file) return;
+    if (!file || !file->fp) return;
+    if (len > LOG_BUFFER_SIZE) len = LOG_BUFFER_SIZE;
     if (file->index + len > LOG_BUFFER_SIZE)
     {
+        ESP_LOGI(TAG, "Dumping buffer len %d", file->index);
         fwrite(file->buffer, 1, file->index, file->fp);
         fflush(file->fp);
         file->index = 0;
         file->last_flush_tick = xTaskGetTickCount();
+        file->last_write_tick = xTaskGetTickCount();
     }
-
     memcpy(&file->buffer[file->index], data, len);
     file->index += len;
+    ESP_LOGI(TAG, "Added to buffer total len: %d", file->index);
+    file->last_write_tick = xTaskGetTickCount();
 }
 
 //
@@ -176,16 +184,17 @@ static void file_buffer_write(file_log_t *file, const char *data, size_t len)
 static void flush_files_timer()
 {
     TickType_t now = xTaskGetTickCount();
-    for (int i = 0; i < num_open_files; i++)
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
     {
         file_log_t *f = &open_files[i];
 
         if (f->fname[0] != '\0')
         {
+            ESP_LOGI(TAG, "Checking %s for time", f->fname);
             if (f->index == 0) // buffer empty
             {
                 // check the last time it was written, if too long ago close the file
-                if ((now - f->last_flush_tick) >= pdMS_TO_TICKS(MAX_FILE_HOLD_TIME_MS))
+                if ((now - f->last_write_tick) >= pdMS_TO_TICKS(MAX_FILE_HOLD_TIME_MS))
                 {
                     // been too long with an empty buffer and no writing
                     // close file
@@ -195,10 +204,13 @@ static void flush_files_timer()
 
             if ((now - f->last_flush_tick) >= pdMS_TO_TICKS(LOG_FLUSH_INTERVAL_MS))
             {
-                fwrite(f->buffer, 1, f->index, f->fp);
-                fflush(f->fp);
-                f->index = 0;
-                f->last_flush_tick = now;
+                if (f->index > 0)
+                {
+                    fwrite(f->buffer, 1, f->index, f->fp);
+                    fflush(f->fp);
+                    f->index = 0;
+                    f->last_flush_tick = now;
+                }
             }
         }
     }
@@ -222,9 +234,13 @@ static esp_err_t write_file(const char *path, char *data)
     // find the right struct from the pathname
     // this means call find or open
     // then with that struct add data to the buffer
-    file_buffer_write(get_or_open_file(path), data, strlen(data));
+    file_log_t *file = get_or_open_file(path);
+    if (!file) {
+        return ESP_FAIL;
+    }
 
-    return ESP_OK;
+    file_buffer_write(file, data, strlen(data));
+        return ESP_OK;
 }
 
 //
@@ -397,7 +413,7 @@ void init_sd_task()
 
 
 
-    save_queue = xQueueCreate(10, sizeof(save_req_t));
+    save_queue = xQueueCreate(100, sizeof(save_req_t));
 
 
     xTaskCreatePinnedToCore(

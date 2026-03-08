@@ -505,7 +505,7 @@ void make_csv(const ping_profile_t *p, char **csvln, size_t *csvlen)
 static void record_data(char *tosave)
 {
     // file saving queue
-    int len = snprintf(save_req.data, sizeof(save_req.data),"%s",tosave);
+    int len = snprintf(save_req.data, sizeof(save_req.data)+1,"%s\n",tosave);
     snprintf(save_req.fname, sizeof(save_req.fname), "%s", "ping_log.csv");
     save_req.device = PING;
     save_req.len = (len < sizeof(save_req.data)) ? len : sizeof(save_req.data);
