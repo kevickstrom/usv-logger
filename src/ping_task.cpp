@@ -15,7 +15,7 @@
 // https://docs.bluerobotics.com/ping-protocol/pingmessage-ping1d/
 
 #define DEFAULT_BAUD 115200
-static uint32_t default_timeout_ms = 100;
+static uint32_t default_timeout_ms = 200;
 static QueueHandle_t ping_queue;
 static const char *TAG = "PING_TASK";
 static save_req_t save_req;
@@ -271,7 +271,7 @@ static void send_profile_request( uart_transaction_t *trans,uint16_t profile_id 
     //ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
 
 
-    ESP_LOGI(TAG, "Requested Ping1D Profile (ID=%u)", profile_id);
+    ESP_LOGI(TAG, "Requested Ping1D Profile", profile_id);
 
 }
 
